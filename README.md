@@ -24,6 +24,29 @@ We cannot build for PS2 or Xbox yet. If you're interested in doing so, get in to
   
 - Extract the downloaded zip over your GTA VC directory and run reVC. The zip includes the binary, updated and additional gamefiles and in case of OpenAL the required dlls.
 
+## Browser build (Orthros)
+
+This fork's `orthros` branch builds reVC for the browser: WebAssembly with Emscripten (4.0.23), WebGL 2 through
+[librw's fork](https://github.com/Lomchat/librw/tree/orthros), OpenAL on WebAudio, mpg123, SDL2 — the game files stay
+the player's own. It runs in [Orthros](https://github.com/Lomchat/orthros), which serves the game's files and the page.
+
+```sh
+emcmake cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DREVC_AUDIO=OAL -DREVC_VENDORED_LIBRW=ON \
+  -DLIBRW_PLATFORM=GL3 -DLIBRW_GL3_GFXLIB=SDL2 -DLIBRW_TOOLS=OFF -DLIBRW_INSTALL=OFF
+cmake --build build      # build/src/revc.mjs + revc.wasm: an ES module, createReVC(overrides)
+```
+
+What differs from the desktop build, all under `__EMSCRIPTEN__`:
+- **One thread, the browser's turn.** The main loop waits for the browser's next frame (JSPI suspends the WebAssembly
+  stack), long loads give it its turn; a file read whose bytes the page has not fetched yet suspends the engine while
+  they come (`src/skel/orthros_fs.js`, the page's `node.orthrosStreamed`) instead of a synchronous request.
+- **Frames.** The 30 fps frame limiter meets its period at the frame the browser shows (whole-millisecond timer:
+  20-30 fps otherwise). Windowed mode at the canvas' size (an exclusive mode's screen size skewed the camera and the
+  menus' hit areas). WebGL 2: GLSL ES 3.00, S3TC kept compressed, a vertex array object per mesh, immediate draws
+  uploaded in one exact-size call (WebGL zero-fills a buffer allocated without data).
+- **Files and sound.** The CD image read at once; no `models/txd.img` conversion; `userfiles/` created under musl;
+  OpenAL's default device without enumeration; the render callbacks' types fixed for WebAssembly's indirect calls.
+
 ## Screenshots
 
 ![screen_ 1613087332](https://user-images.githubusercontent.com/1521437/107714111-f84f3200-6ccc-11eb-902e-d757481d579a.png)

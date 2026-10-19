@@ -1804,7 +1804,14 @@ main(int argc, char *argv[])
                         float ms = (float)CTimer::GetCurrentTimeInCycles() / (float)CTimer::GetCyclesPerMillisecond();
                         if ( RwInitialised )
                         {
+#ifdef __EMSCRIPTEN__
+                            // (the browser's frames: the limiter's period met at the frame the browser shows it — the
+                            // timer counts whole milliseconds, 33 ms after two 60 Hz frames is under 1000/30: the game
+                            // waited a third one every other time, 20 to 30 frames a second instead of 30)
+                            if (!FrontEndMenuManager.m_PrefsFrameLimiter || (1000.0f / (float)RsGlobal.maxFPS) - 4.0f < ms)
+#else
                             if (!FrontEndMenuManager.m_PrefsFrameLimiter || (1000.0f / (float)RsGlobal.maxFPS) < ms)
+#endif
                                 RsEventHandler(rsIDLE, (void *)TRUE);
                         }
                         break;

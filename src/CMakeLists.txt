@@ -28,8 +28,15 @@ elseif(ANDROID)
 endif()
 
 if(EMSCRIPTEN)
-    # the browser build (Orthros): an ES module and its WebAssembly, revc.mjs and revc.wasm
+    # the browser build (Orthros): an ES module and its WebAssembly, revc.mjs and revc.wasm; one thread whose waits —
+    # the browser's next frame, a file's bytes — suspend the WebAssembly stack (JSPI); WebGL 2; 256 MiB to start
     set_target_properties(${EXECUTABLE} PROPERTIES OUTPUT_NAME revc SUFFIX .mjs)
+    target_link_options(${EXECUTABLE} PRIVATE
+        -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createReVC -sENVIRONMENT=web -sJSPI=1
+        -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=268435456 -sMAXIMUM_MEMORY=4294967296 -sSTACK_SIZE=8388608
+        -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sGL_ENABLE_GET_PROC_ADDRESS=1 -sFORCE_FILESYSTEM=1
+        -sEXIT_RUNTIME=1 -sINVOKE_RUN=0 -sEXPORTED_RUNTIME_METHODS=FS,ENV,callMain,HEAPU8 -sASSERTIONS=0
+        --profiling-funcs "--js-library=${CMAKE_CURRENT_SOURCE_DIR}/skel/orthros_fs.js")
 endif()
 
 target_link_libraries(${EXECUTABLE} PRIVATE

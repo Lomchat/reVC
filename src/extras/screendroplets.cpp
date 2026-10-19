@@ -783,12 +783,20 @@ RenderIndexedPrimitive_UV2(RwPrimitiveType primType, Im2DVertexUV2 *vertices, Rw
 #endif
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, im2D_UV2_Ibo);
+#ifdef __EMSCRIPTEN__
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, numIndices*2, indices, GL_STREAM_DRAW); // (WebGL zero-fills a buffer allocated without data)
+#else
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, NUMINDICES*2, nil, GL_STREAM_DRAW);
 	glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, numIndices*2, indices);
+#endif
 
 	glBindBuffer(GL_ARRAY_BUFFER, im2D_UV2_Vbo);
+#ifdef __EMSCRIPTEN__
+	glBufferData(GL_ARRAY_BUFFER, numVertices*sizeof(Im2DVertexUV2), vertices, GL_STREAM_DRAW); // (WebGL zero-fills a buffer allocated without data)
+#else
 	glBufferData(GL_ARRAY_BUFFER, NUMVERTICES*sizeof(Im2DVertexUV2), nil, GL_STREAM_DRAW);
 	glBufferSubData(GL_ARRAY_BUFFER, 0, numVertices*sizeof(Im2DVertexUV2), vertices);
+#endif
 
 	xform[0] = 2.0f/cam->frameBuffer->width;
 	xform[1] = -2.0f/cam->frameBuffer->height;
