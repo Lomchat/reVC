@@ -504,6 +504,16 @@ static_assert(false, "SUPPORT_XBOX_SCRIPT and SUPPORT_MOBILE_SCRIPT are mutually
 
 #endif // VANILLA_DEFINES
 
+#ifdef __EMSCRIPTEN__
+// The browser (Orthros): one thread, no signals. Streamed audio and the CD image are read synchronously.
+#undef MULTITHREADED_AUDIO
+#undef FLUSHABLE_STREAMING
+// No models/txd.img: on OpenGL the game converts every texture of the CD image into it at its first start (it takes
+// the card for one without DXT), a file the browser would keep in memory and in the player's profile, and make again
+// each session; the textures load from the CD image as the original game's (WebGL takes their DXT as it is).
+#undef USE_TXD_CDIMAGE
+#endif
+
 #if defined(AUDIO_OAL) && !defined(EXTERNAL_3D_SOUND)
 #error AUDIO_OAL cannot work without EXTERNAL_3D_SOUND
 #endif

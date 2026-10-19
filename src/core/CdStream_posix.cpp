@@ -141,6 +141,9 @@ void *CdStreamThread(void* channelId);
 void
 CdStreamInitThread(void)
 {
+#ifdef __EMSCRIPTEN__
+	return; // (no reading thread: CdStreamRead reads at once)
+#endif
 	int status;
 #ifndef ONE_THREAD_PER_CHANNEL
 	gChannelRequestQ.items = (int32 *)calloc(gNumChannels + 1, sizeof(int32));
@@ -310,6 +313,9 @@ GetGTA3ImgSize(void)
 void
 CdStreamShutdown(void)
 {
+#ifdef __EMSCRIPTEN__
+	return;
+#endif
     // Destroying semaphores and free(gpReadInfo) will be done at threads
 #ifndef ONE_THREAD_PER_CHANNEL
 	gCdStreamThreadStatus = 2;
@@ -361,6 +367,15 @@ CdStreamRead(int32 channel, void *buffer, uint32 offset, uint32 size)
 	pChannel->nSectorsToRead = size;
 	pChannel->pBuffer = buffer;
 	pChannel->bLocked = 0;
+
+#ifdef __EMSCRIPTEN__
+	// (one thread: the read is done now, its status ready for CdStreamGetStatus and CdStreamSync)
+	lseek(pChannel->hFile, (size_t)pChannel->nSectorOffset * (size_t)CDSTREAM_SECTOR_SIZE, SEEK_SET);
+	pChannel->nStatus = read(pChannel->hFile, pChannel->pBuffer, pChannel->nSectorsToRead * CDSTREAM_SECTOR_SIZE) == -1 ? STREAM_ERROR : STREAM_NONE;
+	pChannel->nSectorsToRead = 0;
+	pChannel->bReading = false;
+	return STREAM_SUCCESS;
+#endif
 
 #ifndef ONE_THREAD_PER_CHANNEL
 	AddToQueue(&gChannelRequestQ, channel);

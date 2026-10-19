@@ -2,7 +2,9 @@
 
 long _dwOperatingSystemVersion;
 
+#ifndef __EMSCRIPTEN__
 #include <sys/sysinfo.h>
+#endif
 #include <errno.h>
 #include <locale.h>
 #include <signal.h>
@@ -15,6 +17,10 @@ long _dwOperatingSystemVersion;
 #include "skeleton.h"
 #include "platform.h"
 #include "crossplatform.h"
+#include "orthros_web.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #include "main.h"
 #include "FileMgr.h"
@@ -90,7 +96,9 @@ void _psCreateFolder(const char *path)
     debug("Creating Folder Path: %s", path);
     struct stat info;
     char fullpath[PATH_MAX];
-    realpath(path, fullpath);
+    // (musl's realpath leaves the buffer empty for a folder not there yet — the browser's C library: the path as it is)
+    if (realpath(path, fullpath) == nil)
+        snprintf(fullpath, sizeof(fullpath), "%s", path);
 
     if (lstat(fullpath, &info) != 0) {
         if (errno == ENOENT || (errno != EACCES && !S_ISDIR(info.st_mode))) {
@@ -178,6 +186,9 @@ psGrabScreen(RwCamera *pCamera)
 double
 psTimer(void)
 {
+#ifdef __EMSCRIPTEN__
+    return emscripten_get_now(); // (the browser has no CLOCK_MONOTONIC_RAW: its clock_gettime fails, the game's time stood still)
+#endif
     struct timespec start;
 #if defined(CLOCK_MONOTONIC_RAW)
     clock_gettime(CLOCK_MONOTONIC_RAW, &start);
@@ -333,7 +344,10 @@ psInitialize(void)
     FrontEndMenuManager.LoadSettings();
 #endif
 
-#ifndef __APPLE__
+#ifdef __EMSCRIPTEN__
+    // (the browser tells no free memory: the streaming budget of a 256 MB machine, ~120 MB of models)
+    _dwMemAvailPhys = 256 * 1024 * 1024;
+#elif !defined(__APPLE__)
     struct sysinfo systemInfo;
     sysinfo(&systemInfo);
     _dwMemAvailPhys = systemInfo.freeram;
@@ -608,6 +622,12 @@ psSelectDevice()
     }
 #endif
 
+#ifdef __EMSCRIPTEN__
+    // (the browser: a window, never an exclusive mode — whose size is the screen's, not the canvas': the camera, the
+    // menus' layout and hit areas, and the mouse follow the window; librw's mode 0 is the windowed one)
+    FrontEndMenuManager.m_nPrefsWindowed = 1;
+    GcurSelVM = bestWndMode = 0;
+#endif
     RwEngineGetVideoModeInfo(&vm, GcurSelVM);
 
 #ifdef IMPROVED_VIDEOMODE
@@ -663,6 +683,13 @@ psSelectDevice()
     RsGlobal.height = FrontEndMenuManager.m_nPrefsHeight;
 
     PSGLOBAL(fullScreen) = !FrontEndMenuManager.m_nPrefsWindowed;
+#endif
+#ifdef __EMSCRIPTEN__
+    // (the browser: the game's screen is its place on the page, whatever mode was chosen — librw's window too)
+    OrthrosCanvasSize(&RsGlobal.maximumWidth, &RsGlobal.maximumHeight);
+    RsGlobal.width = RsGlobal.maximumWidth;
+    RsGlobal.height = RsGlobal.maximumHeight;
+    PSGLOBAL(fullScreen) = FALSE;
 #endif
 
 #ifdef MULTISAMPLING
@@ -1104,10 +1131,12 @@ void resizeCB(int width, int height) {
     */
     /* redraw window */
 
+#ifndef __EMSCRIPTEN__
     if (RwInitialised && gGameState == GS_PLAYING_GAME)
     {
         RsEventHandler(rsIDLE, (void *)TRUE);
     }
+#endif
 
     if (RwInitialised && height > 0 && width > 0) {
         RwRect r;
@@ -1331,6 +1360,10 @@ void inputEventHandler() {
                     // TODO should it be minimized/maximized/restored instead of shown/hidden?
                     case SDL_WINDOWEVENT_SHOWN: windowIconifyCB(false); break;
                     case SDL_WINDOWEVENT_HIDDEN: windowIconifyCB(true); break;
+#ifdef __EMSCRIPTEN__
+                    // (the page resized the canvas: the game's screen follows)
+                    case SDL_WINDOWEVENT_SIZE_CHANGED: resizeCB(event.window.data1, event.window.data2); break;
+#endif
                 }
                 break;
 
@@ -1365,6 +1398,14 @@ void inputEventHandler() {
             mouseRelativeMode = false;
         }
     }
+#ifdef __EMSCRIPTEN__
+    // (the page told the mode the mouse is in: at the start — the menus' free mouse — and at each change)
+    static int toldRelative = -1;
+    if (toldRelative != (int)mouseRelativeMode) {
+        toldRelative = mouseRelativeMode;
+        OrthrosMouseMode(mouseRelativeMode);
+    }
+#endif
     
 }
 
@@ -1554,6 +1595,9 @@ main(int argc, char *argv[])
         while( !RsGlobal.quit && !FrontEndMenuManager.m_bWantToRestart && !SDL_QuitRequested())
 #endif
         {
+#ifdef __EMSCRIPTEN__
+            OrthrosFrameYield();
+#endif
             inputEventHandler();
 
 #ifndef MASTER

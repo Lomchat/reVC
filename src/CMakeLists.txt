@@ -27,6 +27,11 @@ elseif(ANDROID)
     add_library(${EXECUTABLE} SHARED ${${PROJECT}_SOURCES})
 endif()
 
+if(EMSCRIPTEN)
+    # the browser build (Orthros): an ES module and its WebAssembly, revc.mjs and revc.wasm
+    set_target_properties(${EXECUTABLE} PROPERTIES OUTPUT_NAME revc SUFFIX .mjs)
+endif()
+
 target_link_libraries(${EXECUTABLE} PRIVATE
     librw::librw
     Threads::Threads

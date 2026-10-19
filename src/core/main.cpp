@@ -1,5 +1,6 @@
 #include "common.h"
 #include <time.h>
+#include "orthros_web.h"
 #include "rpmatfx.h"
 #include "rphanim.h"
 #include "rpskin.h"
@@ -650,6 +651,9 @@ LoadingScreen(const char *str1, const char *str2, const char *splashscreen)
 {
 	CSprite2d *splash;
 
+#ifdef __EMSCRIPTEN__
+	OrthrosLoadingYield();
+#endif
 #ifdef DISABLE_LOADING_SCREEN
 	if (str1 && str2)
 		return;

@@ -770,7 +770,9 @@ cSampleManager::Initialise(void)
 	if ( _bSampmanInitialised )
 		return TRUE;
 
+#ifndef __EMSCRIPTEN__ // (the browser's OpenAL has no EFX: nothing to look up)
 	EFXInit();
+#endif
 
 	for(int i = 0; i < MAX_STREAMS; i++)
 		aStream[i] = new CStream(ALStreamSources[i], ALStreamBuffers[i]);

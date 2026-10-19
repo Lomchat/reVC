@@ -40,6 +40,22 @@ ALDeviceList::ALDeviceList()
 
 	defaultDeviceIndex = 0;
 
+#ifdef __EMSCRIPTEN__
+	// (the browser's OpenAL enumerates no device: its default one, described without being opened — a probe would
+	// leave an AudioContext running, Emscripten's alcDestroyContext never closes its own; its sources are unlimited)
+	if (!alcIsExtensionPresent(NULL, "ALC_ENUMERATION_EXT")) {
+		const char *name = alcGetString(NULL, ALC_DEFAULT_DEVICE_SPECIFIER);
+		ALDEVICEINFO &ALDeviceInfo = aDeviceInfo[nNumOfDevices++];
+		ALDeviceInfo.bSelected = true;
+		ALDeviceInfo.SetName(name ? name : "");
+		ALDeviceInfo.iMajorVersion = 1;
+		ALDeviceInfo.iMinorVersion = 1;
+		ALDeviceInfo.uiSourceCount = 256;
+		ResetFilters();
+		return;
+	}
+#endif
+
 	if (alcIsExtensionPresent(NULL, "ALC_ENUMERATION_EXT")) {
 		devices = (char *)alcGetString(NULL, ALC_ALL_DEVICES_SPECIFIER);
 		defaultDeviceName = (char *)alcGetString(NULL, ALC_DEFAULT_ALL_DEVICES_SPECIFIER);
