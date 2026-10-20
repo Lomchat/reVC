@@ -139,6 +139,9 @@ namespace OrthrosMmo
 	// CPad::AddToPCCheatString after the character entered the string (reversed in buf): true = taken here (the
 	// teleport list; a cheat refused or sent as a world cheat), the game's own matching skipped.
 	bool CheatString(char *reversed);
+	// CPad::DoCheats on entry: true = the gamepad's cheat combos are off (a shared world: cheats go through the
+	// keyboard's gate only).
+	bool PadCheatsBlocked(void);
 	// The HELP list pauses the game except in a shared world.
 	bool ListsPause(void);
 }

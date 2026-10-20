@@ -73,6 +73,7 @@ WEAK bool DebugAllowed(void) { return true; }
 WEAK void PauseMenuOpening(void) {}
 // social
 WEAK bool CheatString(char *) { return false; }
+WEAK bool PadCheatsBlocked(void) { return false; }
 WEAK bool ListsPause(void) { return true; }
 
 // ---------------------------------------------------------------- mmo_internal.h: core services
@@ -216,6 +217,7 @@ WEAK void Social_Reset(void) {}
 WEAK void Social_OnEvent(int32, int32, In &) {}
 WEAK bool Social_TestCommand(const char *) { return false; }
 WEAK void Social_Debug(void) {}
+WEAK void Social_LeaveInterior(void) {}
 }
 
 // (CTimer's milliseconds: the lights' time without a shared world)

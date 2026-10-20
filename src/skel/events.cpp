@@ -22,12 +22,10 @@ HandleKeyDown(RsKeyStatus *keyStatus)
 	RwInt32 c = keyStatus->keyCharCode;
 	
 #ifdef ORTHROS_EXTRAS
-	// (the cheat list closed at the key - Esc, Enter, Backspace -, whatever the frame rate; the game never sees it)
-	if ( (c == rsESC || c == rsENTER || c == rsPADENTER || c == rsBACKSP) && OrthrosExtras::IsCheatListOpen() )
-	{
-		OrthrosExtras::ToggleCheatList();
+	// (an open list's keys at the key, whatever the frame rate - HELP's: Esc, Enter, Backspace close it; the teleport
+	// list's: arrows, Enter, Esc -; the game never sees them)
+	if ( OrthrosExtras::ListKeyDown(c) )
 		return rsEVENTPROCESSED;
-	}
 #endif
 
 	if ( c != rsNULL )

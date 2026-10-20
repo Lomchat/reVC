@@ -283,5 +283,8 @@ void Social_Reset(void);
 void Social_OnEvent(int32 from, int32 sub, In &in);
 bool Social_TestCommand(const char *cmd);
 void Social_Debug(void);
+// The local player out of any interior, as the game's interiors thread takes them out (the main map shown, the
+// interior's colours and rubbish undone, every interior's "inside" flag cleared): before a teleport, a world prepared.
+void Social_LeaveInterior(void);
 }
 #endif
