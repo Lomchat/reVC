@@ -122,6 +122,8 @@ namespace OrthrosMmo
 	bool HideoutMayOpen(CGarage *garage);
 	void HideoutStored(CGarage *garage, CStoredCar *cars);
 	bool GarageLeaveAlone(CVehicle *veh);
+	// The open hideout's closing conditions (GS_OPENED): true = a remote player is in it or at its door, keep it open.
+	bool HideoutKeepOpen(CGarage *garage);
 
 	// ---------------------------------------------------------------- session (mmo_session.cpp)
 	// After a saved game loaded (OrthrosExtras::GameLoaded): the shared world prepared and the character applied.

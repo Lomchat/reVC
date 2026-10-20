@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Camera.h"
 #include "Clock.h"
@@ -469,7 +470,11 @@ CTrafficLights::FindTrafficLightType(CEntity *light)
 uint8
 CTrafficLights::LightForPeds(void)
 {
+#ifdef ORTHROS_EXTRAS
+	uint32 period = OrthrosMmo::LightsTime() % 16384;
+#else
 	uint32 period = CTimer::GetTimeInMilliseconds() % 16384;
+#endif
 
 	if(period < 12000)
 		return PED_LIGHTS_DONT_WALK;
@@ -488,7 +493,11 @@ CTrafficLights::LightForCars1(void)
 	if (bGreenLightsCheat)
 		return CAR_LIGHTS_GREEN;
 
+#ifdef ORTHROS_EXTRAS
+	uint32 period = OrthrosMmo::LightsTime() % 16384;
+#else
 	uint32 period = CTimer::GetTimeInMilliseconds() % 16384;
+#endif
 
 	if(period < 5000)
 		return CAR_LIGHTS_GREEN;
@@ -507,7 +516,11 @@ CTrafficLights::LightForCars2(void)
 	if (bGreenLightsCheat)
 		return CAR_LIGHTS_GREEN;
 
+#ifdef ORTHROS_EXTRAS
+	uint32 period = OrthrosMmo::LightsTime() % 16384;
+#else
 	uint32 period = CTimer::GetTimeInMilliseconds() % 16384;
+#endif
 
 	if(period < 6000)
 		return CAR_LIGHTS_RED;
@@ -524,7 +537,11 @@ CTrafficLights::LightForCars1_Visual(void)
 {
 	if (CWeather::Wind <= 1.1f)
 		return LightForCars1();
+#ifdef ORTHROS_EXTRAS
+	return (OrthrosMmo::LightsTime() & 0x400 ? CAR_LIGHTS_NONE : CAR_LIGHTS_YELLOW);
+#else
 	return (CTimer::GetTimeInMilliseconds() & 0x400 ? CAR_LIGHTS_NONE : CAR_LIGHTS_YELLOW);
+#endif
 }
 
 uint8
@@ -532,5 +549,9 @@ CTrafficLights::LightForCars2_Visual(void)
 {
 	if (CWeather::Wind <= 1.1f)
 		return LightForCars2();
+#ifdef ORTHROS_EXTRAS
+	return (OrthrosMmo::LightsTime() & 0x400 ? CAR_LIGHTS_NONE : CAR_LIGHTS_YELLOW);
+#else
 	return (CTimer::GetTimeInMilliseconds() & 0x400 ? CAR_LIGHTS_NONE : CAR_LIGHTS_YELLOW);
+#endif
 }

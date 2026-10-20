@@ -65,6 +65,7 @@ WEAK bool HideoutMirrored(CGarage *) { return false; }
 WEAK bool HideoutMayOpen(CGarage *) { return true; }
 WEAK void HideoutStored(CGarage *, CStoredCar *) {}
 WEAK bool GarageLeaveAlone(CVehicle *) { return false; }
+WEAK bool HideoutKeepOpen(CGarage *) { return false; }
 // session
 WEAK void GameLoaded(void) {}
 WEAK bool ScriptNamed(CRunningScript *) { return false; }

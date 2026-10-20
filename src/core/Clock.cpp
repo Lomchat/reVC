@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Timer.h"
 #include "Pad.h"
@@ -43,6 +44,10 @@ CClock::Initialise(uint32 scale)
 void
 CClock::Update(void)
 {
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::ClockUpdate())
+		return;
+#endif
 	if(CPad::GetPad(1)->GetRightShoulder1())
 	{
 		ms_nGameClockMinutes += 8;
