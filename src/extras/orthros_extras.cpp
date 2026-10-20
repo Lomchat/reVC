@@ -434,7 +434,7 @@ RenderCheatList()
 // save anywhere from the pause menu.
 static const char *FREE_MODE_START = "orthros\\freemode.b";
 static bool freeModeStart; // (the next load: that game, not a slot)
-// (the same game as the shared world's base — OrthrosMmo's session —: the next load, the game being played)
+// (that game as the shared world's base — OrthrosMmo's session: the next load is it; the game being played is it)
 static bool sharedStart, sharedGame;
 
 // (when a slot's game was saved: its file's header, as PopulateSlotInfo reads it)

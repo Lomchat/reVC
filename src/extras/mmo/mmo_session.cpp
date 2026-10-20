@@ -625,21 +625,34 @@ ResetSession(void)
 	numPendingWeapons = 0;
 }
 
-// (back to the game's start menu: the game shut down at the end of this frame, then the start as when the game starts —
-// sdl2.cpp's main loop restarts to GS_INIT_FRONTEND when m_bFirstTime is set, after CGame::ShutDown, as the pause
-// menu's "New Game" does before CGame::Initialise; without it a restart starts a new story game. The screen and the
-// sound unfaded as CCamera::Init leaves them at the game's start: the menus answer only an unfaded screen,
-// CMenuManager::Process, and nothing fades them in before a game starts)
+// (back to the game's start menu from a game: the game shut down at the end of this frame, then the start as when the
+// game starts — sdl2.cpp's main loop restarts to GS_INIT_FRONTEND when m_bFirstTime is set, after CGame::ShutDown, as
+// the pause menu's "New Game" does before CGame::Initialise; without it a restart starts a new story game.
+// GS_FRONTEND starts that game too unless its first frame opens the menu, CMenuManager::SwitchMenuOnAndOff: the pause
+// menu, if open, closed without its closing steps — the restart unloads its textures — so that the start opens it anew
+// as at the game's start, no request left to close it, and the screen unfaded and not widescreen as CCamera::Init
+// leaves it then — the menus answer nothing else, and nothing fades them in before a game starts)
 static void
 BackToMainMenu(void)
 {
+	if (FrontEndMenuManager.m_bGameNotLoaded)
+		return;
 	FrontEndMenuManager.m_bFirstTime = true;
 	FrontEndMenuManager.m_bWantToLoad = false;
 	FrontEndMenuManager.m_bWantToRestart = true;
+	FrontEndMenuManager.m_bMenuActive = false;
+	FrontEndMenuManager.m_bShutDownFrontEndRequested = false;
+	FrontEndMenuManager.m_bStartUpFrontEndRequested = false;
+	FrontEndMenuManager.m_bWaitingForNewKeyBind = false;
+	FrontEndMenuManager.pEditString = nil;
+	FrontEndMenuManager.pControlEdit = nil;
 	TheCamera.m_bFading = false;
 	TheCamera.m_fFLOATingFade = 0.0f;
 	TheCamera.m_bMusicFading = false;
 	TheCamera.m_fFLOATingFadeMusic = 0.0f;
+	TheCamera.m_WideScreenOn = false;
+	TheCamera.m_bWantsToSwitchWidescreenOff = false;
+	TheCamera.m_ScreenReductionPercentage = 0.0f;
 	CDraw::FadeValue = 0;
 	DMAudio.SetEffectsFadeVol(127);
 	DMAudio.SetMusicFadeVol(127);
@@ -668,16 +681,20 @@ BeginLeave(void)
 	SetMode(MODE_LEAVING);
 }
 
-// (the join given up: the server told, the start page again; a world already loaded left for the main menu)
+// (the join given up: the server told; from the menus, back to the start page, the lobby's link kept; from a game — the
+// world's load failed and the game started another —, back to the main menu as when leaving)
 static void
 AbortJoin(void)
 {
 	OrthrosExtras::CancelSharedWorld();
 	RequestLeave();
 	ResetSession();
-	SetMode(LinkState() == LINK_OPEN ? MODE_LOBBY : MODE_OFF);
-	if (!FrontEndMenuManager.m_bGameNotLoaded) {
+	if (FrontEndMenuManager.m_bGameNotLoaded)
+		SetMode(LinkState() == LINK_OPEN ? MODE_LOBBY : MODE_OFF);
+	else {
 		ResetModules();
+		SetMode(MODE_OFF);
+		Disconnect();
 		BackToMainMenu();
 	}
 	if (joinTest.step == JT_LOADING)
@@ -1009,6 +1026,11 @@ GameStarting(bool shared)
 		if (InWorld())
 			ResetModules();
 		ResetSession();
+		SetMode(MODE_OFF);
+		break;
+	case MODE_LOBBY:
+		// (from the lobby's pages to another game: the link has nothing more to do)
+		Disconnect();
 		SetMode(MODE_OFF);
 		break;
 	}
