@@ -1,5 +1,6 @@
 #include "common.h"
 #include "orthros_extras.h"
+#include "mmo.h"
 #include "platform.h"
 
 #include "Game.h"
@@ -853,6 +854,9 @@ void CGame::Process(void)
 	ProcessTidyUpMemory();
 #endif
 #ifdef DEBUGMENU
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::DebugAllowed()) // (a shared world: admins only)
+#endif
 	DebugMenuProcess();
 #endif
 	CCutsceneMgr::Update();
@@ -879,6 +883,9 @@ void CGame::Process(void)
 	if (!CTimer::GetIsPaused())
 	{
 #ifndef MASTER
+#ifdef ORTHROS_EXTRAS
+		if (!OrthrosMmo::DebugAllowed()) VarUpdatePlayerCoords = false;
+#endif
 		if (VarUpdatePlayerCoords) {
 			FindPlayerPed()->Teleport(PlayerCoords);
 			VarUpdatePlayerCoords = false;

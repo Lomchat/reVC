@@ -14,6 +14,7 @@
 #include "PCSave.h"
 #include "frontendoption.h"
 #include "Streaming.h"
+#include "mmo.h"
 
 const char *_psGetUserFilesFolder();
 
@@ -93,6 +94,7 @@ Text(const char *key)
 {
 	static const struct { const char *key, *en, *fr; } texts[] = {
 		{ "ORT_FRE", "Free Mode", "Mode libre" },
+		{ "ORT_LMP", "Leave Multiplayer", "Quitter le multijoueur" },
 		{ "ORT_CON", "Continue", "Continuer" },
 		{ "ORT_NEW", "New Free Game", "Nouvelle partie libre" },
 	};
@@ -432,6 +434,8 @@ RenderCheatList()
 // save anywhere from the pause menu.
 static const char *FREE_MODE_START = "orthros\\freemode.b";
 static bool freeModeStart; // (the next load: that game, not a slot)
+// (the same game as the shared world's base — OrthrosMmo's session —: the next load, the game being played)
+static bool sharedStart, sharedGame;
 
 // (when a slot's game was saved: its file's header, as PopulateSlotInfo reads it)
 static bool
@@ -562,18 +566,25 @@ void
 GameLoaded()
 {
 	static const int callsMade[] = { 1139, 1140, 1158, 1162, 1164 }; // (MOB_17A, MOB_18A, MOB_63A, MOB_71A, MOB_73A)
+	// (the shared world's base: prepared by its session, the free mode's ways not)
+	if (sharedGame) {
+		OrthrosMmo::GameLoaded();
+		return;
+	}
 	if (!bFreeMode || CTheScripts::MainScriptSize != 204596)
 		return;
 	for (int i = 0; i < (int)ARRAY_SIZE(callsMade); i++)
 		*(int32 *)&CTheScripts::ScriptSpace[callsMade[i] * 4] = 1;
 }
 
-// (a game starts: a free one or not)
+// (a game starts: a free one or not, the shared world's or not)
 static void
-StartingGame(bool free)
+StartingGame(bool free, bool shared = false)
 {
 	bFreeMode = free;
+	sharedGame = shared;
 	SetPauseSaveEntry(free);
+	OrthrosMmo::GameStarting(shared);
 }
 
 void
@@ -592,6 +603,14 @@ StartingNewGame()
 bool
 CheckLoad(int32 slot)
 {
+	// (the shared world's base: the free mode's start, a game of the shared world and not a free one)
+	if (sharedStart) {
+		sharedStart = false;
+		if (!FreeModeStartReady())
+			return false;
+		StartingGame(false, true);
+		return true;
+	}
 	// (a mission's retry: the quick save its start made, in its game's files — the game goes on as it was)
 	if (slot >= SLOT_COUNT) {
 		SaveMenuOpening();
@@ -673,6 +692,34 @@ FreeModeDeletePress(int8 action)
 		return;
 	ListsFor(true);
 	FrontEndMenuManager.SwitchToNewScreen(MENUPAGE_CHOOSE_DELETE_SLOT);
+}
+
+// ---------------------------------------------------------------- the shared world's base
+// (loaded from a menu as "New Free Game" loads its game; with no menu open — a game being played —, as the pause menu's
+// load page would)
+void
+StartSharedWorld()
+{
+	sharedStart = true;
+	if (FrontEndMenuManager.m_bMenuActive) {
+		FrontEndMenuManager.m_nCurrSaveSlot = 0;
+		FrontEndMenuManager.SwitchToNewScreen(MENUPAGE_LOADING_IN_PROGRESS);
+		return;
+	}
+	if (CheckLoad(0)) {
+		FrontEndMenuManager.DoSettingsBeforeStartingAGame();
+		FrontEndMenuManager.m_bWantToLoad = true;
+	}
+}
+
+void
+CancelSharedWorld()
+{
+	if (!sharedStart)
+		return;
+	sharedStart = false;
+	if (FrontEndMenuManager.m_bMenuActive && FrontEndMenuManager.m_nCurrScreen == MENUPAGE_LOADING_IN_PROGRESS)
+		FrontEndMenuManager.SwitchToNewScreen(MENUPAGE_START_MENU);
 }
 }
 #endif

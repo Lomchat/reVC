@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Script.h"
 #include "ScriptCommands.h"
@@ -292,6 +293,9 @@ int8 CRunningScript::ProcessCommands300To399(int32 command)
 	}
 	case COMMAND_SET_TIME_SCALE:
 		CollectParameters(&m_nIp, 1);
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::IsActive()) *(float*)&ScriptParams[0] = 1.0f; // (no slow motion in a shared world)
+#endif
 		CTimer::SetTimeScale(*(float*)&ScriptParams[0]);
 		return 0;
 	/*

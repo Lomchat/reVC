@@ -48,5 +48,10 @@ namespace OrthrosExtras
 	void FreeModeNewPress(int8 action);
 	void FreeModeLoadPress(int8 action);
 	void FreeModeDeletePress(int8 action);
+	// The shared world's base (OrthrosMmo's session, src/extras/mmo): the free mode's start loaded as a new free game is,
+	// without the free mode's rules (no free saves, no pause "Save Game"); OrthrosMmo::GameLoaded prepares it. Given up
+	// before its load: the start page again.
+	void StartSharedWorld();
+	void CancelSharedWorld();
 }
 #endif

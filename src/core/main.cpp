@@ -1,5 +1,6 @@
 #include "common.h"
 #include "orthros_extras.h"
+#include "mmo.h"
 #include <time.h>
 #include "orthros_web.h"
 #include "rpmatfx.h"
@@ -1520,6 +1521,9 @@ RenderMenus(void)
 	}
 #ifndef MASTER
 	else
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::DebugAllowed()) // (a shared world: admins only)
+#endif
 		VarConsole.Check();
 #endif
 }

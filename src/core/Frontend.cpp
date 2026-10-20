@@ -3,6 +3,7 @@
 #define WITHDINPUT
 #include "common.h"
 #include "orthros_extras.h"
+#include "mmo.h"
 #ifndef PS2_MENU
 #include "crossplatform.h"
 #include "platform.h"
@@ -571,6 +572,9 @@ CMenuManager::SetFrontEndRenderStates(void)
 void
 CMenuManager::Initialise(void)
 {
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::PauseMenuOpening();
+#endif
 	DoRWStuffStartOfFrame(0, 0, 0, 0, 0, 0, 255);
 	DoRWStuffEndOfFrame();
 	m_AllowNavigation = false;
