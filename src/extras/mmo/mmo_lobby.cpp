@@ -877,12 +877,13 @@ RefreshList(void)
 	Row was = { R_NONE, -1 };
 	if (m.m_nCurrScreen == page && m.m_nCurrOption >= 0 && m.m_nCurrOption < NUM_MENUROWS)
 		was = lobby.rows[page - PAGE_FIRST][m.m_nCurrOption];
-	const bool arriving = !(lobby.shape[page - PAGE_FIRST] & 0x10000u) && status == ST_LIST;
+	// (what the page says changed - the list come, a sign-in asked...: the cursor on what it offers first; the list's
+	// own changes keep it where it was)
+	const bool changed = !((lobby.shape[page - PAGE_FIRST] & 0x10000u) && status == ST_LIST);
 	BuildList(status);
 	if (m.m_nCurrScreen == page) {
-		// (the list just come: the cursor on its first character, "New character" when there is none)
-		if (arriving)
-			was = Lobby().count > 0 ? Row{ R_CHARACTER, 0 } : Row{ R_NEW, -1 };
+		if (changed)
+			was = status != ST_LIST ? Row{ R_NONE, -1 } : Lobby().count > 0 ? Row{ R_CHARACTER, 0 } : Row{ R_NEW, -1 };
 		if (was.role == R_CHARACTER && was.index >= Lobby().count)
 			was.index = Lobby().count - 1;
 		SelectRow(page, was.role, was.role == R_CHARACTER ? was.index : -1);

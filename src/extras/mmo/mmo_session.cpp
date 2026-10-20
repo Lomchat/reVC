@@ -1181,7 +1181,9 @@ Session_Debug(void)
 	JsonText(joinTest.status, text, sizeof(text));
 	DebugAppend(",\"inWorld\":%s,\"join\":\"%s\",\"leaving\":%s", ped ? "true" : "false", text, bLeaving ? "true" : "false");
 	JsonText(Me().name, text, sizeof(text));
-	DebugAppend(",\"char\":\"%s\",\"charId\":%u", text, Me().id);
+	DebugAppend(",\"char\":\"%s\",\"charId\":%u,\"fade\":%d,\"menuActive\":%s,\"paused\":%s", text, Me().id,
+	            TheCamera.GetScreenFadeStatus(), FrontEndMenuManager.m_bMenuActive ? "true" : "false",
+	            CTimer::GetIsPaused() ? "true" : "false");
 	if (ped == nil)
 		return;
 	const CVector &pos = ped->GetPosition();
