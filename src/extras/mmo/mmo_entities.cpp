@@ -8,6 +8,12 @@
 // Not shared: the script's own entities (MISSION_CHAR peds, MISSION_VEHICLE cars: every client's scripts make the
 // same ones), planes and trains (the game drives them from its clock), objects. A script car the local player drives is
 // shared from then on.
+// Counters: a copy counts in the game's ped and car counters (the population's caps) only while it is inside the local
+// population's radius (the one beyond which the game removes our own: 51 m x the creation multiplier for peds, 120 m
+// for cars, x1.5 for an extended range, both x the camera's generation multiplier). Where players overlap the density
+// stays the game's for one player; a remote crowd 200 m away does not starve our own streets.
+// Records (ENTITY_STATE, after the core's 18-byte header): u32 the sender's server clock (ms, low 32 bits), u8 area,
+// u16 model, then the ped's or the vehicle's body (WritePed, WriteVehicle). ENTITY_GONE reasons: GONE_* below.
 #include "common.h"
 
 #ifdef ORTHROS_EXTRAS
@@ -139,6 +145,7 @@ struct EntData {
 	bool hidden;           // a passenger whose vehicle is not here
 	bool rebuild;          // made again from its next state (revived, model changed)
 	double lastState, ownerMissing;
+	double deadAt;         // since when the copy is dying or dead here
 	Sample samples[MAX_SAMPLES];
 	int32 numSamples;
 	State st;
@@ -1883,10 +1890,15 @@ Entities_PuppetPedControl(CPed *ped, NetEntity *ne)
 		ped->m_vecMoveSpeed = cur.vel;
 	}
 	const bool dead = (s.flags & EF_DEAD) != 0;
+	if (ped->DyingOrDead()) {
+		if (d->deadAt == 0.0)
+			d->deadAt = Now();
+	} else
+		d->deadAt = 0.0;
 	if (dead && !ped->DyingOrDead())
 		PuppetDie(ped);
-	else if (!dead && ped->DyingOrDead())
-		d->rebuild = true; // (revived by its owner: made again)
+	else if (!dead && ped->DyingOrDead() && Now() - d->deadAt > 2000.0)
+		d->rebuild = true; // (revived by its owner — not a death told sooner by another way: made again)
 	if (ped->m_nPedState == PED_DIE && !ped->bIsPedDieAnimPlaying && s.pedState == PED_DEAD) {
 		ped->SetPedState(PED_DEAD);
 		ped->bUsesCollision = false;
