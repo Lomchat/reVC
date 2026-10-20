@@ -612,8 +612,14 @@ psSelectDevice()
         }
 
         if(bestFsMode < 0){
+#ifdef __EMSCRIPTEN__
+            // (the browser takes the window, mode 0, below: a size saved on another screen - the settings follow the
+            // account - is no reason to stop)
+            bestFsMode = 0;
+#else
             printf("WARNING: Cannot find desired video mode, selecting device cancelled\n");
             return FALSE;
+#endif
         }
         GcurSelVM = bestFsMode;
 
