@@ -81,7 +81,7 @@ enum {
 enum { REACT_WEAPON, REACT_FIGHT };
 
 enum {
-	STALE_HIT = 20000,     // (ms of server time: a hit older is dropped — a tab hidden meanwhile, its queue replayed;
+	STALE_HIT = 20000,     // (ms of server time: a hit older is dropped - a tab hidden meanwhile, its queue replayed;
 	STALE_EFFECT = 15000,  // a blast older is not replayed. Generous: a slow machine's frame may take seconds)
 	NEAR = 300,            // (m: an event is sent only when a remote player is this near)
 	SHOTS_PER_SECOND = 40, // (traces, sniper bullets, flames told at most this often)
@@ -123,6 +123,7 @@ static struct { int32 sent, received, applied, dropped; } hits;
 static struct { uint32 target; int32 method; float damage; double at; } lastSent, lastReceived;
 static int32 eventsSent, eventsReceived, kills, deaths;
 static int32 fireCommands, firedCommands;
+static int32 seen[16]; // (events received, by sub - SUB_COMBAT)
 static CVector lastTraceStart, lastTraceEnd;
 static char lastKiller[24], lastVictim[24];
 static uint32 lastDeathKiller;
@@ -168,7 +169,7 @@ IdOf(const CEntity *e)
 	return ne->player >= 0 ? PlayerNetId(ne->player) : ne->netid;
 }
 
-// (a pointer the game keeps without a reference — m_lastDamEntity — still a live ped or vehicle: read from the pools,
+// (a pointer the game keeps without a reference - m_lastDamEntity - still a live ped or vehicle: read from the pools,
 // never through the pointer)
 template<typename T, typename U>
 static bool
@@ -219,7 +220,7 @@ ShotBudget(void)
 }
 
 // (hits sent as they are: bullets, pellets, melee, sniper bullets, drive-bys, the helicopters' guns. Not the hits the
-// victim's client sees itself — falls, drowning — nor the area effects every owner applies to its own: explosions,
+// victim's client sees itself - falls, drowning - nor the area effects every owner applies to its own: explosions,
 // fire, flames, gas)
 static bool
 DirectHit(int32 method)
@@ -398,7 +399,7 @@ ApplyPedHit(CPed *victim, CEntity *culprit, int32 method, float damage, int32 pi
 }
 
 // (the victim's entity here, ours to apply to: the local player, or an entity we own; nil otherwise. The local player is
-// not hurt while away — the pause menu open)
+// not hurt while away - the pause menu open)
 static CEntity *
 OwnVictim(uint32 target)
 {
@@ -543,8 +544,8 @@ OnKnockOff(uint32 target, In &in)
 	hits.applied++;
 }
 
-// (a car of another client's ran into one of ours: the local player as its own collisions with a car do it — a fall and
-// 20 —, another ped as the game's KillPedWithCar does)
+// (a car of another client's ran into one of ours: the local player as its own collisions with a car do it - a fall and
+// 20 -, another ped as the game's KillPedWithCar does)
 static void
 OnCarHit(uint32 target, In &in)
 {
@@ -700,7 +701,7 @@ OnSniper(In &in)
 	bReplaying = wasReplaying;
 }
 
-// (a remote flame: its particles; its shot, which sets on fire what we own as it goes — PostWorld)
+// (a remote flame: its particles; its shot, which sets on fire what we own as it goes - PostWorld)
 static void
 OnFlame(In &in)
 {
@@ -722,7 +723,7 @@ OnFlame(In &in)
 }
 
 // (the remote flames' shots: what they reach of ours catches fire, as CShotInfo::Update does with the shooter's near
-// peds — a puppet has none)
+// peds - a puppet has none)
 static void
 RemoteFlames(void)
 {
@@ -818,7 +819,7 @@ OnProjectile(int32 from, In &in)
 		ShotSound(shooter);
 }
 
-// (a remote projectile gone: its copy too, without an explosion — its owner's comes as its own event)
+// (a remote projectile gone: its copy too, without an explosion - its owner's comes as its own event)
 static void
 OnProjectileGone(int32 from, In &in)
 {
@@ -915,8 +916,8 @@ KillLine(int32 victimSlot, uint32 killer)
 	lastDeathKiller = killer;
 }
 
-// (the local player died: its killer — the last network hit if it is still the last damage, else the game's own
-// record — told to everyone)
+// (the local player died: its killer - the last network hit if it is still the last damage, else the game's own
+// record - told to everyone)
 static void
 TellDeath(void)
 {
@@ -1105,7 +1106,7 @@ PedDamage(CPed *victim, CEntity *damagedBy, int32 method, float damage, int32 pe
 	if (Mode() == MODE_OFF)
 		return false;
 	if (!IsPuppet(victim)) {
-		// (ours run into by another client's car: that car's owner tells it — TG_CAR_HIT)
+		// (ours run into by another client's car: that car's owner tells it - TG_CAR_HIT)
 		if (!bApplying && damagedBy && damagedBy->IsVehicle() && IsPuppet(damagedBy) &&
 		    (method == WEAPONTYPE_RAMMEDBYCAR || method == WEAPONTYPE_RUNOVERBYCAR)) {
 			*result = false;
@@ -1390,8 +1391,8 @@ ExplosionAdded(CEntity *exploding, CEntity *culprit, int32 type, const CVector &
 {
 	if (bReplaying || !Playing())
 		return;
-	// (ours: a vehicle or thing of ours blowing up, or a blast we caused; the world's own — mines, a barrel no one
-	// shot — is every client's own)
+	// (ours: a vehicle or thing of ours blowing up, or a blast we caused; the world's own - mines, a barrel no one
+	// shot - is every client's own)
 	const bool ours = exploding ? Local(exploding) : (culprit != nil && Local(culprit));
 	if (!ours || !AnyoneNear(pos, NEAR))
 		return;
@@ -1518,6 +1519,8 @@ Combat_OnEvent(int32 from, int32 sub, In &in)
 	if (Mode() != MODE_ACTIVE || from == LocalSlot())
 		return;
 	eventsReceived++;
+	if (sub - SUB_COMBAT >= 0 && sub - SUB_COMBAT < (int32)ARRAY_SIZE(seen))
+		seen[sub - SUB_COMBAT]++;
 	switch (sub) {
 	case EV_SHOT: OnShot(in); break;
 	case EV_SNIPER: OnSniper(in); break;
@@ -1611,7 +1614,7 @@ Face(CPlayerPed *ped, const CVector &pos)
 	ped->UpdateRwFrame();
 }
 
-// (the last "fire": its target, what a line from the hand to it meets — the debug state's)
+// (the last "fire": its target, what a line from the hand to it meets - the debug state's)
 static struct { uint32 target; int32 hit; CVector end; bool fired; int32 state; } lastFire;
 
 // (one shot of the held weapon as the player's attack makes it: at the puppet aimed at as a lock-on does, else straight
@@ -1661,8 +1664,11 @@ FireOnce(int32 slot)
 	CCamera::m_bUseMouse3rdPerson = false;
 	if (weapon->m_eWeaponState == WEAPONSTATE_FIRING && weapon->m_nTimer < CTimer::GetTimeInMilliseconds())
 		weapon->m_eWeaponState = WEAPONSTATE_READY;
-	ped->m_fAttackButtonCounter = 0.0f; // (one press: the first shot's accuracy)
+	// (one press: the first shot's accuracy; a throw held a moment)
+	const float oldCounter = ped->m_fAttackButtonCounter;
+	ped->m_fAttackButtonCounter = info->m_eWeaponFire == WEAPON_FIRE_PROJECTILE ? 8.0f : 0.0f;
 	const bool fired = weapon->Fire(ped, &source);
+	ped->m_fAttackButtonCounter = oldCounter;
 	CCamera::m_bUseMouse3rdPerson = oldMouse;
 	ped->m_pPointGunAt = oldPointAt;
 	ped->m_pedIK.m_flags = oldFlags;
@@ -1732,6 +1738,15 @@ Combat_TestCommand(const char *cmd)
 		lastSent.at = Now();
 		return true;
 	}
+	if (Word(cmd, "pickup", &args)) {
+		// pickup [amount]: money dropped 4 m ahead of the player, as a dead ped's (an administrator's)
+		if (!Playing() || !IsAdmin())
+			return true;
+		CPlayerPed *ped = FindPlayerPed();
+		const int32 amount = *args ? atoi(args) : 10;
+		CPickups::CreateSomeMoney(ped->GetPosition() + 4.0f * ped->GetForward(), Clamp(amount, 1, 10000));
+		return true;
+	}
 	if (Word(cmd, "explode", &args)) {
 		// explode: a grenade's blast 5 m ahead of the player (an administrator's)
 		if (!Playing() || !IsAdmin())
@@ -1765,6 +1780,19 @@ Combat_Debug(void)
 	DebugAppend(",\"fires\":%d,\"fired\":%d,\"lastFire\":{\"target\":%u,\"fired\":%s,\"state\":%d,\"hit\":%d,\"end\":[%.2f,%.2f,%.2f]}",
 	            fireCommands, firedCommands, lastFire.target, lastFire.fired ? "true" : "false", lastFire.state, lastFire.hit,
 	            lastFire.end.x, lastFire.end.y, lastFire.end.z);
+	DebugAppend(",\"seen\":{\"shots\":%d,\"snipers\":%d,\"flames\":%d,\"projectiles\":%d,\"projectilesGone\":%d,"
+	            "\"explosions\":%d,\"deaths\":%d,\"pickupsMade\":%d,\"pickupsTaken\":%d,\"melee\":%d}",
+	            seen[EV_SHOT - SUB_COMBAT], seen[EV_SNIPER - SUB_COMBAT], seen[EV_FLAME - SUB_COMBAT],
+	            seen[EV_PROJECTILE - SUB_COMBAT], seen[EV_PROJECTILE_GONE - SUB_COMBAT], seen[EV_EXPLOSION - SUB_COMBAT],
+	            seen[EV_DEATH - SUB_COMBAT], seen[EV_PICKUP_MADE - SUB_COMBAT], seen[EV_PICKUP_TAKEN - SUB_COMBAT],
+	            seen[EV_MELEE - SUB_COMBAT]);
+	DebugAppend(",\"pickups\":[");
+	for (int32 slot = 0, k = 0; slot < NUMPICKUPS && k < 8; slot++)
+		if (PickupCurrent(slot) && !CPickups::aPickUps[slot].m_bRemoved) {
+			const CVector &pos = CPickups::aPickUps[slot].m_vecPos;
+			DebugAppend("%s[%.2f,%.2f,%.2f]", k++ ? "," : "", pos.x, pos.y, pos.z);
+		}
+	DebugAppend("]");
 	DebugAppend(",\"lastTrace\":[%.2f,%.2f,%.2f,%.2f,%.2f,%.2f]", lastTraceStart.x, lastTraceStart.y, lastTraceStart.z,
 	            lastTraceEnd.x, lastTraceEnd.y, lastTraceEnd.z);
 	DebugAppend(",\"eventsSent\":%d,\"eventsReceived\":%d,\"kills\":%d,\"deaths\":%d,\"lastKiller\":\"", eventsSent,
