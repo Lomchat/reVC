@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Script.h"
 #include "ScriptCommands.h"
@@ -372,6 +373,10 @@ int8 CRunningScript::ProcessCommands1000To1099(int32 command)
 		uint32 oldIp = m_nIp;
 #endif
 		CollectParameters(&m_nIp, 1);
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::IsActive()) // (no missions in a shared world)
+			return 0;
+#endif
 
 		if (CTheScripts::NumberOfExclusiveMissionScripts > 0 && ScriptParams[0] <= UINT16_MAX - 2)
 			return 0;

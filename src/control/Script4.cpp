@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Script.h"
 #include "ScriptCommands.h"
@@ -1545,6 +1546,10 @@ int8 CRunningScript::ProcessCommands900To999(int32 command)
 			str[i] = tolower(str[i]);
 		m_nIp += KEY_LENGTH_IN_SCRIPT;
 		strncpy(m_abScriptName, str, KEY_LENGTH_IN_SCRIPT);
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::ScriptNamed(this)) // (a single-player thread in a shared world: terminated)
+			return 1;
+#endif
 		return 0;
 	}
 	/*
@@ -1808,6 +1813,10 @@ int8 CRunningScript::ProcessCommands900To999(int32 command)
 	case COMMAND_CREATE_RANDOM_CAR_FOR_CAR_PARK:
 	{
 		CollectParameters(&m_nIp, 4);
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::IsActive() && !OrthrosMmo::MayGenerateAt(*(CVector*)&ScriptParams[0], OrthrosMmo::GEN_CARPARK))
+			return 0;
+#endif
 		if (CCarCtrl::NumRandomCars >= 30)
 			return 0;
 		int attempts;

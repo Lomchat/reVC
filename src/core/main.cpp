@@ -1524,6 +1524,9 @@ RenderMenus(void)
 	}
 #ifndef MASTER
 	else
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::DebugAllowed()) // (a shared world: admins only)
+#endif
 		VarConsole.Check();
 #endif
 }

@@ -90,7 +90,11 @@ CGameLogic::SortOutStreamingAndMemory(const CVector &pos)
 	CStreaming::DeleteRwObjectsAfterDeath(pos);
 	CStreaming::RemoveUnusedModelsInLoadedList();
 	CGame::DrasticTidyUpMemory(true);
+#ifdef ORTHROS_EXTRAS
+	CWorld::Players[CWorld::PlayerInFocus].m_pPed->Undress(OrthrosMmo::PlayerSkin("player"));
+#else
 	CWorld::Players[CWorld::PlayerInFocus].m_pPed->Undress("player");
+#endif
 	CStreaming::LoadSceneCollision(pos);
 	CStreaming::LoadScene(pos);
 	CWorld::Players[CWorld::PlayerInFocus].m_pPed->Dress();
@@ -171,10 +175,16 @@ CGameLogic::Update()
 #endif
 			CMessages::ClearMessages();
 			CCarCtrl::ClearInterestingVehicleList();
+#ifdef ORTHROS_EXTRAS
+			if (!OrthrosMmo::IsActive()) // (a shared world: the others' entities stay, its clock is the server's)
+#endif
 			CWorld::ClearExcitingStuffFromArea(pPlayerInfo.GetPos(), 4000.0f, true);
 			CRestart::FindClosestHospitalRestartPoint(pPlayerInfo.GetPos(), &vecRestartPos, &fRestartFloat);
 			CRestart::OverrideHospitalLevel = LEVEL_GENERIC;
 			CRestart::OverridePoliceStationLevel = LEVEL_GENERIC;
+#ifdef ORTHROS_EXTRAS
+			if (!OrthrosMmo::IsActive())
+#endif
 			PassTime(720);
 			RestorePlayerStuffDuringResurrection(pPlayerInfo.m_pPed, vecRestartPos, fRestartFloat);
 #ifdef ORTHROS_EXTRAS
@@ -283,10 +293,16 @@ CGameLogic::Update()
 #endif
 			CMessages::ClearMessages();
 			CCarCtrl::ClearInterestingVehicleList();
+#ifdef ORTHROS_EXTRAS
+			if (!OrthrosMmo::IsActive())
+#endif
 			CWorld::ClearExcitingStuffFromArea(pPlayerInfo.GetPos(), 4000.0f, true);
 			CRestart::FindClosestPoliceRestartPoint(pPlayerInfo.GetPos(), &vecRestartPos, &fRestartFloat);
 			CRestart::OverrideHospitalLevel = LEVEL_GENERIC;
 			CRestart::OverridePoliceStationLevel = LEVEL_GENERIC;
+#ifdef ORTHROS_EXTRAS
+			if (!OrthrosMmo::IsActive())
+#endif
 			PassTime(720);
 			RestorePlayerStuffDuringResurrection(pPlayerInfo.m_pPed, vecRestartPos, fRestartFloat);
 #ifdef ORTHROS_EXTRAS
@@ -341,6 +357,9 @@ CGameLogic::Update()
 #endif
 			CMessages::ClearMessages();
 			CCarCtrl::ClearInterestingVehicleList();
+#ifdef ORTHROS_EXTRAS
+			if (!OrthrosMmo::IsActive())
+#endif
 			CWorld::ClearExcitingStuffFromArea(pPlayerInfo.GetPos(), 4000.0f, true);
 			CRestart::FindClosestPoliceRestartPoint(pPlayerInfo.GetPos(), &vecRestartPos, &fRestartFloat);
 			CRestart::OverridePoliceStationLevel = LEVEL_GENERIC;
@@ -398,6 +417,9 @@ CGameLogic::RestorePlayerStuffDuringResurrection(CPlayerPed *pPlayerPed, CVector
 	pPlayerPed->m_fRotationDest = pPlayerPed->m_fRotationCur;
 	pPlayerPed->SetHeading(pPlayerPed->m_fRotationCur);
 	CTheScripts::ClearSpaceForMissionEntity(pos, pPlayerPed);
+#ifdef ORTHROS_EXTRAS
+	if (!OrthrosMmo::IsActive())
+#endif
 	CWorld::ClearExcitingStuffFromArea(pos, 4000.0f, true);
 	pPlayerPed->RestoreHeadingRate();
 	CGame::currArea = AREA_MAIN_MAP;

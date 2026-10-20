@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "RwHelper.h"
 #include "PlayerPed.h"
@@ -536,7 +537,11 @@ CPlayerPed::SetRealMoveAnim(void)
 				curRunAssoc->speed = 1.0f;
 			if (curSprintAssoc)
 				curSprintAssoc->speed = 1.0f;
-		} else {
+		} else
+#ifdef ORTHROS_EXTRAS
+		if (!OrthrosMmo::IsActive()) // (a shared world: no slow motion, nor the faster steps that go with it)
+#endif
+		{
 			CTimer::SetTimeScale(1.0f / 3);
 			if (curWalkStartAssoc)
 				curWalkStartAssoc->speed = 2.0f;

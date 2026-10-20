@@ -71,6 +71,7 @@ WEAK bool ScriptNamed(CRunningScript *) { return false; }
 WEAK const char *PlayerSkin(const char *original) { return original; }
 WEAK bool DebugAllowed(void) { return true; }
 WEAK void PauseMenuOpening(void) {}
+WEAK void GameStarting(bool) {}
 // social
 WEAK bool CheatString(char *) { return false; }
 WEAK bool ListsPause(void) { return true; }

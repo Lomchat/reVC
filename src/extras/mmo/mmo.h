@@ -134,6 +134,9 @@ namespace OrthrosMmo
 	bool DebugAllowed(void);
 	// The pause menu opening (its rows: no save, "Leave multiplayer").
 	void PauseMenuOpening(void);
+	// A game starts (OrthrosExtras::StartingGame: a new story game, a saved one, the free mode's, the shared world's):
+	// any other than the shared world's leaves it (the character saved, LEAVE sent).
+	void GameStarting(bool shared);
 
 	// ---------------------------------------------------------------- social (mmo_social.cpp)
 	// CPad::AddToPCCheatString after the character entered the string (reversed in buf): true = taken here (the
