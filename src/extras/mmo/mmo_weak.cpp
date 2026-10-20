@@ -165,6 +165,7 @@ WEAK void Players_PreWorld(void) {}
 WEAK void Players_PostWorld(void) {}
 WEAK void Players_Render2d(void) {}
 WEAK bool Players_PuppetControl(CPed *, NetEntity *) { return false; }
+WEAK void Players_EntityDestroyed(CEntity *, NetEntity *) {}
 WEAK void Players_Reset(void) {}
 WEAK void Players_OnEvent(int32, int32, In &) {}
 WEAK void Players_OnTargeted(int32, uint32, int32, In &) {}
@@ -181,6 +182,9 @@ WEAK void Entities_Reset(void) {}
 WEAK void Entities_OnEvent(int32, int32, In &) {}
 WEAK void Entities_OnTargeted(int32, uint32, int32, In &) {}
 WEAK bool Entities_TestCommand(const char *) { return false; }
+WEAK bool Entities_PuppetPedControl(CPed *, NetEntity *) { return false; }
+WEAK bool Entities_PuppetVehicleControl(CVehicle *, NetEntity *) { return false; }
+WEAK void Entities_EntityDestroyed(CEntity *, NetEntity *) {}
 WEAK void Entities_Debug(void) {}
 
 WEAK void Combat_PreWorld(void) {}

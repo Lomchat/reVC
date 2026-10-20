@@ -278,6 +278,55 @@ EntityOf(uint32 netid)
 	return ne ? ne->e : nil;
 }
 
+// ---------------------------------------------------------------- puppets: the game's hooks, to their module
+bool
+IsPuppet(const CEntity *e)
+{
+	if (e == nil || Mode() == MODE_OFF)
+		return false;
+	const NetEntity *ne = Find(e);
+	return ne && ne->puppet;
+}
+
+bool
+PuppetPedControl(CPed *ped)
+{
+	if (Mode() == MODE_OFF)
+		return false;
+	NetEntity *ne = Find(ped);
+	if (ne == nil || !ne->puppet)
+		return false;
+	return ne->player >= 0 ? Players_PuppetControl(ped, ne) : Entities_PuppetPedControl(ped, ne);
+}
+
+bool
+PuppetVehicleControl(CVehicle *veh)
+{
+	if (Mode() == MODE_OFF)
+		return false;
+	NetEntity *ne = Find(veh);
+	if (ne == nil || !ne->puppet)
+		return false;
+	return Entities_PuppetVehicleControl(veh, ne);
+}
+
+// (a ped or vehicle being deleted, whatever deletes it: its module told while its entry still holds, then the entry
+// gone)
+void
+EntityDestroyed(CEntity *e)
+{
+	if (e == nil || Mode() == MODE_OFF)
+		return;
+	NetEntity *ne = Find(e);
+	if (ne == nil)
+		return;
+	if (ne->player >= 0)
+		Players_EntityDestroyed(e, ne);
+	else
+		Entities_EntityDestroyed(e, ne);
+	Unregister(e);
+}
+
 bool
 OwnedHere(const CEntity *e)
 {

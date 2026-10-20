@@ -225,6 +225,7 @@ void Players_PreWorld(void);
 void Players_PostWorld(void);
 void Players_Render2d(void);
 bool Players_PuppetControl(CPed *ped, NetEntity *ne);
+void Players_EntityDestroyed(CEntity *e, NetEntity *ne);
 void Players_Reset(void);                   // the world left or the link reset: every remote puppet removed
 void Players_OnEvent(int32 from, int32 sub, In &in);
 void Players_OnTargeted(int32 from, uint32 target, int32 sub, In &in);
@@ -241,6 +242,13 @@ void Entities_Reset(void);
 void Entities_OnEvent(int32 from, int32 sub, In &in);
 void Entities_OnTargeted(int32 from, uint32 target, int32 sub, In &in);
 bool Entities_TestCommand(const char *cmd);
+// The game's ProcessControl of an ambient puppet (the core's PuppetPedControl / PuppetVehicleControl give each
+// puppet to its module: remote players' peds to Players_PuppetControl): true = done.
+bool Entities_PuppetPedControl(CPed *ped, NetEntity *ne);
+bool Entities_PuppetVehicleControl(CVehicle *veh, NetEntity *ne);
+// A networked entity being deleted (CPed / CVehicle destructors through the core's EntityDestroyed): an owned one is
+// told gone (ENTITY_GONE), a puppet's buffers freed; the registry entry is removed right after.
+void Entities_EntityDestroyed(CEntity *e, NetEntity *ne);
 void Entities_Debug(void);
 // combat (mmo_combat.cpp)
 void Combat_PreWorld(void);

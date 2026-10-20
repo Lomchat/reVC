@@ -553,10 +553,12 @@ SetMode(int32 m)
 	mode = m;
 }
 
+// (from the moment WELCOME starts the world's load: its first script tick, inside the load, already runs the shared
+// world's rules)
 bool
 IsActive(void)
 {
-	return mode == MODE_ACTIVE || mode == MODE_LEAVING;
+	return mode == MODE_JOINING || mode == MODE_ACTIVE || mode == MODE_LEAVING;
 }
 
 bool
@@ -1190,6 +1192,18 @@ CoreCommand(const char *cmd, double now)
 	return false;
 }
 
+static bool
+CheatLikeCommand(const char *cmd)
+{
+	static const char *const words[] = { "tp", "weapon", "money", "car", "health", "armour", "give", "wanted" };
+	for (const char *w : words) {
+		const size_t k = strlen(w);
+		if (strncmp(cmd, w, k) == 0 && (cmd[k] == ' ' || cmd[k] == '\0'))
+			return true;
+	}
+	return false;
+}
+
 // (one command a frame; a key pressed by one is released before the next is read)
 static void
 TestStep(double now)
@@ -1214,6 +1228,12 @@ TestStep(double now)
 	debug("Orthros MMO: test command \"%s\"\n", cmd);
 	if (CoreCommand(cmd, now))
 		return;
+	// (?mmotest is any page's to add: in a shared world, the commands that change the player's state are an
+	// administrator's only, like the cheats)
+	if (mode != MODE_OFF && mode != MODE_LOBBY && !admin && CheatLikeCommand(cmd)) {
+		debug("Orthros MMO: test command \"%s\" refused (not an administrator)\n", cmd);
+		return;
+	}
 	if (Session_TestCommand(cmd) || Lobby_TestCommand(cmd) || Players_TestCommand(cmd) || Entities_TestCommand(cmd) ||
 	    Combat_TestCommand(cmd) || World_TestCommand(cmd) || Social_TestCommand(cmd))
 		return;
