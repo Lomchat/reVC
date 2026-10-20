@@ -124,6 +124,10 @@ static struct { uint32 target; int32 method; float damage; double at; } lastSent
 static int32 eventsSent, eventsReceived, kills, deaths;
 static int32 fireCommands, firedCommands;
 static int32 seen[16]; // (events received, by sub - SUB_COMBAT)
+static int32 wrecked;  // (puppet vehicles wrecked here as their owners' were)
+static struct { int32 age, type; float dist; bool replayed; } lastBlast;
+static float flameNearest = -1.0f; // (the nearest a remote flame came to the local player)
+static int32 ignitions;
 static CVector lastTraceStart, lastTraceEnd;
 static char lastKiller[24], lastVictim[24];
 static uint32 lastDeathKiller;
@@ -739,7 +743,13 @@ RemoteFlames(void)
 			CPed *ped = i < 0 ? (CPed *)player : player->m_nearPeds[i];
 			if (ped == nil || IsPuppet(ped) || ped->bInVehicle || ped->m_pFire || ped->bFireProof || !ped->IsPedInControl())
 				continue;
+			if (ped == player) {
+				const float d = (ped->GetPosition() - shot.m_startPos).Magnitude();
+				if (flameNearest < 0.0f || d < flameNearest)
+					flameNearest = d;
+			}
 			if ((ped->GetPosition() - shot.m_startPos).MagnitudeSqr() < radius) {
+				ignitions++;
 				if (ped != player) {
 					ped->SetFindPathAndFlee(shot.m_sourceEntity, 10000);
 					ped->SetMoveState(PEDMOVE_SPRINT);
@@ -848,6 +858,7 @@ Wreck(CVehicle *veh, CEntity *culprit, bool explode)
 {
 	if (veh->GetStatus() == STATUS_WRECKED)
 		return;
+	wrecked++;
 	const bool wasReplaying = bReplaying;
 	bReplaying = true;
 	bWrecking = true;
@@ -878,8 +889,15 @@ OnExplosion(In &in)
 	const CVector pos = in.Vec();
 	const uint32 lifetime = in.U32();
 	const uint32 stamp = in.U32();
-	if (!in.Ok() || type > EXPLOSION_HELI_BOMB || Age(stamp) > STALE_EFFECT)
+	if (!in.Ok() || type > EXPLOSION_HELI_BOMB)
 		return;
+	lastBlast.age = Age(stamp);
+	lastBlast.type = type;
+	lastBlast.dist = FindPlayerPed() ? (FindPlayerPed()->GetPosition() - pos).Magnitude() : -1.0f;
+	lastBlast.replayed = false;
+	if (Age(stamp) > STALE_EFFECT)
+		return;
+	lastBlast.replayed = true;
 	CEntity *culprit = Culprit(culpritId);
 	CEntity *exploding = Culprit(explodingId);
 	// (a vehicle's blast: its copy here blows up with it)
@@ -1799,7 +1817,16 @@ Combat_Debug(void)
 	DebugAppend(",\"lastReceived\":{\"attacker\":%u,\"method\":%d,\"damage\":%.1f,\"ago\":%.0f}", lastReceived.target,
 	            lastReceived.method, lastReceived.damage, lastReceived.at > 0.0 ? now - lastReceived.at : -1.0);
 	CVehicle *veh = Playing() ? FindPlayerVehicle() : nil;
-	DebugAppend(",\"vehicleHealth\":%.1f", veh ? veh->m_fHealth : -1.0f);
+	DebugAppend(",\"vehicleHealth\":%.1f,\"wrecked\":%d", veh ? veh->m_fHealth : -1.0f, wrecked);
+	DebugAppend(",\"lastBlast\":{\"age\":%d,\"type\":%d,\"dist\":%.1f,\"replayed\":%s},\"flameNearest\":%.2f,\"ignitions\":%d",
+	            lastBlast.age, lastBlast.type, lastBlast.dist, lastBlast.replayed ? "true" : "false", flameNearest, ignitions);
+	{
+		CPlayerPed *me = Playing() ? FindPlayerPed() : nil;
+		if (me)
+			DebugAppend(",\"me\":{\"canBeDamaged\":%s,\"explosionProof\":%s,\"fireProof\":%s,\"pedState\":%d,\"inControl\":%s,\"onFire\":%s}",
+			            me->m_bCanBeDamaged ? "true" : "false", me->bExplosionProof ? "true" : "false", me->bFireProof ? "true" : "false",
+			            me->m_nPedState, me->IsPedInControl() ? "true" : "false", me->m_pFire ? "true" : "false");
+	}
 	DebugAppend(",\"fires\":%d,\"fired\":%d,\"lastFire\":{\"target\":%u,\"fired\":%s,\"state\":%d,\"hit\":%d,\"end\":[%.2f,%.2f,%.2f]}",
 	            fireCommands, firedCommands, lastFire.target, lastFire.fired ? "true" : "false", lastFire.state, lastFire.hit,
 	            lastFire.end.x, lastFire.end.y, lastFire.end.z);
