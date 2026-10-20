@@ -51,6 +51,7 @@
 #include "AnimBlendAssociation.h"
 #include "AnimBlendAssocGroup.h"
 #include "RpAnimBlend.h"
+#include "Timer.h"
 
 namespace OrthrosMmo
 {
@@ -109,7 +110,7 @@ struct Remote {
 	CVehicle *vehicle;         // the vehicle it is seated in (a registered reference)
 	int32 seat;
 	uint64 blocks;             // the animation blocks it holds a reference on (bit n: block n)
-	double tagAt;              // when its tag was last drawn
+	bool tagDrawn;             // its tag drawn at the last Render2d
 	bool visible;
 	uint32 states;             // states received
 };
@@ -138,10 +139,12 @@ static struct {
 	double skinSince;
 } local;
 
-// The test commands' controls (?mmotest).
+// The test commands' controls (?mmotest): the walk's end in the game's own time (a slow test machine still walks
+// as far), the aim's on the wall clock.
 static struct {
 	int32 aimSlot;
-	double aimUntil, walkUntil;
+	double aimUntil;
+	uint32 walkUntil;
 	bool sprint;
 	int32 jumpFrames, crouchFrames;
 } test = { -1 };
@@ -558,7 +561,7 @@ ClearRecord(Remote &r)
 	r.vehicle = nil;
 	r.seat = -1;
 	r.blocks = 0;
-	r.tagAt = 0.0;
+	r.tagDrawn = false;
 	r.visible = false;
 	r.states = 0;
 }
@@ -1211,7 +1214,7 @@ ApplyTestControls(double now)
 	if (me == nil)
 		return;
 	CPad *pad = CPad::GetPad(0);
-	if (now < test.walkUntil) {
+	if (CTimer::GetTimeInMilliseconds() < test.walkUntil) {
 		pad->NewState.LeftStickY = -128;
 		if (test.sprint)
 			pad->NewState.Cross = 255;
@@ -1230,6 +1233,10 @@ ApplyTestControls(double now)
 			test.aimUntil = 0.0;
 			return;
 		}
+		// (a gun in hand: its aim held, as the target button does)
+		const eWeaponType weapon = me->GetWeapon()->m_eWeaponType;
+		if (weapon >= WEAPONTYPE_COLT45 && weapon <= WEAPONTYPE_MINIGUN)
+			pad->NewState.RightShoulder1 = 255;
 		const CVector target = p->puppet ? p->puppet->GetPosition() : p->pos;
 		const CVector d = target - me->GetPosition();
 		if (d.Magnitude2D() < 0.1f)
@@ -1316,7 +1323,8 @@ Players_Reset(void)
 		DropPending(i);
 		ClearRecord(r);
 	}
-	test.aimUntil = test.walkUntil = 0.0;
+	test.aimUntil = 0.0;
+	test.walkUntil = 0;
 	test.jumpFrames = test.crouchFrames = 0;
 }
 
@@ -1440,15 +1448,18 @@ void
 Players_Render2d(void)
 {
 	Ready();
-	if (Mode() != MODE_ACTIVE || !CHud::m_Wants_To_Draw_Hud || TheCamera.m_WideScreenOn)
+	if (Mode() != MODE_ACTIVE || !CHud::m_Wants_To_Draw_Hud || TheCamera.m_WideScreenOn) {
+		for (int32 i = 0; i < MAX_SLOTS; i++)
+			remotes[i].tagDrawn = false;
 		return;
+	}
 	const CVector cam = TheCamera.GetPosition();
-	const double now = Now();
 	bool started = false;
 	for (int32 i = 0; i < MAX_SLOTS; i++) {
 		Remote &r = remotes[i];
 		RemotePlayer *p = Player(i);
 		CPed *ped = r.ped;
+		r.tagDrawn = false;
 		if (p == nil || ped == nil || !ped->bIsVisible || ped->GetClump() == nil)
 			continue;
 		const CVector head = ped->GetNodePosition(PED_HEAD) + CVector(0.0f, 0.0f, 0.3f);
@@ -1475,7 +1486,7 @@ Players_Render2d(void)
 			CFont::SetDropShadowPosition(1);
 		}
 		const float k = Clampf(1.3f - dist / 50.0f, 0.55f, 1.0f);
-		const float sx = 0.42f * k, sy = 0.9f * k;
+		const float sx = 0.5f * k, sy = 1.05f * k;
 		const uint8 alpha = (uint8)(dist > TAG_FADE ? 255.0f * Clampf(1.0f - (dist - TAG_FADE) / (TAG_RANGE - TAG_FADE), 0.0f, 1.0f) : 255.0f);
 		const float row = 18.0f * SCREEN_SCALE_Y(sy);
 		const int32 stars = Min((int32)p->wanted, 6);
@@ -1501,7 +1512,7 @@ Players_Render2d(void)
 			CFont::SetColor(CRGBA(97, 194, 247, alpha)); // (the HUD's WANTED_COLOR)
 			CFont::PrintString(screen.x, y + row, line);
 		}
-		r.tagAt = now;
+		r.tagDrawn = true;
 	}
 	if (started) {
 		CFont::DrawFonts();
@@ -1517,20 +1528,27 @@ Players_TestCommand(const char *cmd)
 	const double now = Now();
 	int32 slot;
 	float seconds;
+	// (aiming at a player and leaving the area are an administrator's only: an aimbot, an invisible player otherwise)
 	if (sscanf(cmd, "aim %d", &slot) == 1) {
-		// aim <slot>: the local player (and the camera) turned toward that player for 3 s
+		// aim <slot>: the local player (and the camera) turned toward that player for 3 s, a gun's aim held
 		test.aimSlot = slot;
-		test.aimUntil = Player(slot) ? now + 3000.0 : 0.0;
+		test.aimUntil = Player(slot) && (IsAdmin() || Mode() != MODE_ACTIVE) ? now + 3000.0 : 0.0;
+		return true;
+	}
+	if (sscanf(cmd, "area %d", &slot) == 1) {
+		// area <n>: the local player's area set (an interior's number, 0 the main map) as entering one does to it
+		if (IsAdmin() && Mode() == MODE_ACTIVE && slot >= 0 && slot < AREA_EVERYWHERE)
+			CGame::currArea = slot;
 		return true;
 	}
 	if (sscanf(cmd, "walk %f", &seconds) == 1 || strcmp(cmd, "walk") == 0) {
-		// walk [seconds]: forward held (1 s by default)
-		test.walkUntil = now + 1000.0 * (strcmp(cmd, "walk") == 0 ? 1.0f : Clampf(seconds, 0.0f, 60.0f));
+		// walk [seconds]: forward held for that long in the game's time (1 s by default)
+		test.walkUntil = CTimer::GetTimeInMilliseconds() + (uint32)(1000.0f * (strcmp(cmd, "walk") == 0 ? 1.0f : Clampf(seconds, 0.0f, 60.0f)));
 		test.sprint = false;
 		return true;
 	}
 	if (sscanf(cmd, "sprint %f", &seconds) == 1) {
-		test.walkUntil = now + 1000.0 * Clampf(seconds, 0.0f, 60.0f);
+		test.walkUntil = CTimer::GetTimeInMilliseconds() + (uint32)(1000.0f * Clampf(seconds, 0.0f, 60.0f));
 		test.sprint = true;
 		return true;
 	}
@@ -1543,7 +1561,8 @@ Players_TestCommand(const char *cmd)
 		return true;
 	}
 	if (strcmp(cmd, "stop") == 0) {
-		test.walkUntil = test.aimUntil = 0.0;
+		test.walkUntil = 0;
+		test.aimUntil = 0.0;
 		return true;
 	}
 	return false;
@@ -1609,11 +1628,27 @@ Players_Debug(void)
 			            "\"dead\":%s,\"weapon\":%d,\"weaponShown\":%s,\"aiming\":%s,\"moveState\":%d,\"pedState\":%d,\"anim\":[%d,%d,%.2f],"
 			            "\"anims\":%d,\"blocks\":%u",
 			            (ped->GetPosition() - statePos).Magnitude(), r.model, r.special, ped->bIsVisible ? "true" : "false",
-			            now - r.tagAt < 1000.0 ? "true" : "false", ped->bInVehicle && r.vehicle ? NetIdOf(r.vehicle) : 0u, r.seat,
+			            r.tagDrawn ? "true" : "false", ped->bInVehicle && r.vehicle ? NetIdOf(r.vehicle) : 0u, r.seat,
 			            r.dead ? "true" : "false", (int32)ped->GetWeapon()->m_eWeaponType, ped->m_pWeaponModel ? "true" : "false",
 			            r.aiming ? "true" : "false", (int32)ped->m_nMoveState, (int32)ped->m_nPedState,
 			            main ? main->groupId : -1, main ? main->animId : -1, main ? main->blendAmount : 0.0f,
 			            s ? s->numAnims : 0, (uint32)r.blocks);
+			DebugAppend(",\"puppetAnims\":[");
+			int32 n = 0;
+			if (ped->GetClump())
+				for (CAnimBlendAssociation *a = RpAnimBlendClumpGetFirstAssociation(ped->GetClump()); a && n < 6; a = RpAnimBlendGetNextAssociation(a))
+					DebugAppend("%s[%d,%d,%.2f,%.2f]", n++ ? "," : "", a->groupId, a->animId, a->currentTime, a->blendAmount);
+			DebugAppend("]");
+		}
+		{
+			Skin skin;
+			ResolveSkin(p->skin, &skin);
+			DebugAppend(",\"resolved\":{\"special\":%s,\"model\":%d,\"female\":%s,\"name\":", skin.special ? "true" : "false",
+			            skin.model, skin.female ? "true" : "false");
+			DebugName(skin.name);
+			DebugAppend(",\"pending\":");
+			DebugName(pendingSkin[i].name);
+			DebugAppend(",\"pendingSlot\":%d}", pendingSkin[i].special);
 		}
 		if (s)
 			DebugAppend(",\"state\":{\"life\":%d,\"move\":%d,\"pedState\":%d,\"flags\":%d,\"weapon\":%d,\"health\":%d,\"armour\":%d,"
@@ -1630,6 +1665,13 @@ Players_Debug(void)
 			DebugName(specials[i].name);
 			DebugAppend(",\"refs\":%d}", specials[i].refs);
 		}
+	DebugAppend("],\"slotRefs\":[");
+	for (int32 i = 0; i < NUM_SPECIAL; i++) {
+		CBaseModelInfo *info = CModelInfo::GetModelInfo(MI_SPECIAL01 + i);
+		DebugAppend("%s[%d,%d,%d,", i ? "," : "", info->GetNumRefs(), specials[i].refs, CStreaming::HasModelLoaded(MI_SPECIAL01 + i) ? 1 : 0);
+		DebugName(info->GetModelName());
+		DebugAppend("]");
+	}
 	DebugAppend("]");
 	if (local.haveSent) {
 		const PlayerState &s = local.sent;
