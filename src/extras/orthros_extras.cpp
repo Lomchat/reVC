@@ -14,6 +14,7 @@
 #include "PCSave.h"
 #include "frontendoption.h"
 #include "Streaming.h"
+#include "mmo_internal.h"
 
 const char *_psGetUserFilesFolder();
 
@@ -99,6 +100,9 @@ Text(const char *key)
 	static wchar buffers[ARRAY_SIZE(texts)][2][48];
 	if (strncmp(key, "ORT_", 4) != 0)
 		return nil;
+	// (the shared world's lobby pages: theirs)
+	if (wchar *lobby = OrthrosMmo::Lobby_Text(key))
+		return lobby;
 	const int lang = French() ? 1 : 0;
 	for (int i = 0; i < (int)ARRAY_SIZE(texts); i++)
 		if (strcmp(key, texts[i].key) == 0) {
@@ -631,6 +635,7 @@ ScreenChanged(int screen)
 {
 	if (screen == MENUPAGE_NEW_GAME && freeSaves)
 		ListsFor(false);
+	OrthrosMmo::Lobby_ScreenChanged(screen);
 }
 
 void

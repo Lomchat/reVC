@@ -237,6 +237,10 @@ enum eMenuScreen
 
 #ifdef ORTHROS_EXTRAS
 	MENUPAGE_FREE_MODE, // Orthros' free mode (src/extras/orthros_extras.h)
+	MENUPAGE_MMO_CHARACTERS, // Orthros' shared world: its lobby's pages, rows written at run time (src/extras/mmo/mmo_lobby.cpp)
+	MENUPAGE_MMO_CHARACTER,
+	MENUPAGE_MMO_NEW,
+	MENUPAGE_MMO_DELETE,
 #endif
 	MENUPAGE_OUTRO, // Originally 34, but CFO needs last screen to be empty to count number of menu pages
 	MENUPAGES
