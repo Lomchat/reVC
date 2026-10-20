@@ -1,6 +1,7 @@
 #define WITHDINPUT
 #include "common.h"
 #include "orthros_extras.h"
+#include "mmo.h"
 #include "crossplatform.h"
 #include "platform.h"
 #ifdef XINPUT
@@ -989,11 +990,11 @@ void CPad::UpdateMouse()
 #ifdef LIBRW_SDL2
         PCTempMouseControllerState.LMB = !!(mouseState & SDL_BUTTON(1));
 #ifdef ORTHROS_EXTRAS
-        // (the click that chose a code in the cheat list is not the game's, until it is released; the mouse's moves over
-        // the list neither: the camera stays where it was)
-        if (OrthrosExtras::SwallowLeftButton(PCTempMouseControllerState.LMB))
+        // (the click that chose a code in the cheat list - or a row of a shared world's list - is not the game's, until
+        // it is released; the mouse's moves over a list neither: the camera stays where it was)
+        if (OrthrosExtras::SwallowLeftButton(PCTempMouseControllerState.LMB) || OrthrosMmo::OverlayHasMouse())
             PCTempMouseControllerState.LMB = false;
-        if (OrthrosExtras::IsCheatListOpen())
+        if (OrthrosExtras::IsCheatListOpen() || OrthrosMmo::OverlayHasMouse())
             PCTempMouseControllerState.x = PCTempMouseControllerState.y = 0.0f;
 #endif
         PCTempMouseControllerState.RMB = !!(mouseState & SDL_BUTTON(3));

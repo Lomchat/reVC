@@ -14,6 +14,7 @@ long _dwOperatingSystemVersion;
 
 #include "common.h"
 #include "orthros_extras.h"
+#include "mmo.h"
 #include "rwcore.h"
 #include "skeleton.h"
 #include "platform.h"
@@ -1303,6 +1304,7 @@ void
 cursorCB(double xpos, double ypos) {
 #ifdef ORTHROS_EXTRAS
     OrthrosExtras::CheatListMouse(xpos, ypos);
+    OrthrosMmo::OverlayMouse(xpos, ypos);
 #endif
     if (!FrontEndMenuManager.m_bMenuActive)
         return;
@@ -1349,10 +1351,14 @@ void inputEventHandler() {
                 break;
             case SDL_MOUSEWHEEL: scrollCB(event.wheel.x, event.wheel.y); break;
 #ifdef ORTHROS_EXTRAS
-            // (a click on the cheat list, at the click whatever the frame rate)
+            // (a click on the cheat list or on a shared world's list, at the click whatever the frame rate)
             case SDL_MOUSEBUTTONDOWN:
-                if (event.button.button == SDL_BUTTON_LEFT)
-                    OrthrosExtras::CheatListClick(event.button.x, event.button.y);
+                if (event.button.button == SDL_BUTTON_LEFT && !OrthrosExtras::CheatListClick(event.button.x, event.button.y))
+                    OrthrosMmo::OverlayClick(event.button.x, event.button.y);
+                break;
+            // (typed text, UTF-8: the shared world's text fields)
+            case SDL_TEXTINPUT:
+                OrthrosMmo::TextInput(event.text.text);
                 break;
 #endif
 
@@ -1390,12 +1396,14 @@ void inputEventHandler() {
     bool wantRelative = gGameState == GS_PLAYING_GAME &&
                         !FrontEndMenuManager.m_bMenuActive && !WindowIconified;
 #ifdef ORTHROS_EXTRAS
-    // (the cheat list's codes are clicked: the mouse free and the system's cursor shown while it is open)
+    // (the cheat list's codes and the shared world's lists are clicked: the mouse free and the system's cursor shown
+    // while one is open)
     static bool cursorShown = false;
-    if (OrthrosExtras::IsCheatListOpen())
+    const bool overlayMouse = OrthrosExtras::IsCheatListOpen() || OrthrosMmo::OverlayHasMouse();
+    if (overlayMouse)
         wantRelative = false;
-    if (OrthrosExtras::IsCheatListOpen() != cursorShown) {
-        cursorShown = OrthrosExtras::IsCheatListOpen();
+    if (overlayMouse != cursorShown) {
+        cursorShown = overlayMouse;
         SDL_ShowCursor(cursorShown ? SDL_ENABLE : SDL_DISABLE);
     }
 #endif
@@ -1412,6 +1420,7 @@ void inputEventHandler() {
                 PSGLOBAL(lastMousePos.y) = y;
 #ifdef ORTHROS_EXTRAS
                 OrthrosExtras::CheatListMouse(x, y);
+                OrthrosMmo::OverlayMouse(x, y);
 #endif
             }
         } else {
@@ -1621,6 +1630,9 @@ main(int argc, char *argv[])
         {
 #ifdef __EMSCRIPTEN__
             OrthrosFrameYield();
+#endif
+#ifdef ORTHROS_EXTRAS
+            OrthrosMmo::Pump(); // (the shared world's messages, received while the page had its turn)
 #endif
             inputEventHandler();
 

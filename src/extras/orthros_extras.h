@@ -21,6 +21,8 @@ namespace OrthrosExtras
 	bool UsingFreeSaves();
 	// The texts the game's text files lack ("ORT_*" keys: CText::Get asks here first); nil for any other key.
 	wchar *Text(const char *key);
+	// UTF-8 (or Latin-1) to the game's text: the accented letters at the codes its fonts use, '?' for what they lack.
+	void GameText(const char *utf8, wchar *out, int size);
 
 	void ToggleCheatList();
 	bool IsCheatListOpen();
@@ -33,6 +35,8 @@ namespace OrthrosExtras
 	bool CheatListClick(float x, float y);
 	// The game's left button, read (Pad.cpp): true while the click that chose a code is still down.
 	bool SwallowLeftButton(bool down);
+	// A click another overlay took (the shared world's lists): not the game's either, until it is released.
+	void SwallowLeftClick();
 
 	// The frontend: a page shown (SwitchToNewScreen), a game to load (MENUPAGE_LOADING_IN_PROGRESS: the slot's, or the
 	// free mode's start — CheckSlotDataValid's part), a new story game; a game saved (a save screen opening, a mission's

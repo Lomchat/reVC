@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "GameLogic.h"
 #include "Clock.h"
@@ -120,6 +121,9 @@ CGameLogic::Update()
 	case WBSTATE_PLAYING:
 		if (pPlayerInfo.m_pPed->m_nPedState == PED_DEAD) {
 			pPlayerInfo.m_pPed->ClearAdrenaline();
+#ifdef ORTHROS_EXTRAS
+			OrthrosMmo::LocalPlayerDied();
+#endif
 			pPlayerInfo.KillPlayer();
 		}
 		if (pPlayerInfo.m_pPed->m_nPedState == PED_ARRESTED) {
@@ -173,6 +177,9 @@ CGameLogic::Update()
 			CRestart::OverridePoliceStationLevel = LEVEL_GENERIC;
 			PassTime(720);
 			RestorePlayerStuffDuringResurrection(pPlayerInfo.m_pPed, vecRestartPos, fRestartFloat);
+#ifdef ORTHROS_EXTRAS
+			OrthrosMmo::LocalPlayerRespawned();
+#endif
 			AfterDeathArrestSetUpShortCutTaxi();
 			SortOutStreamingAndMemory(pPlayerInfo.GetPos());
 			TheCamera.m_fCamShakeForce = 0.0f;
@@ -282,6 +289,9 @@ CGameLogic::Update()
 			CRestart::OverridePoliceStationLevel = LEVEL_GENERIC;
 			PassTime(720);
 			RestorePlayerStuffDuringResurrection(pPlayerInfo.m_pPed, vecRestartPos, fRestartFloat);
+#ifdef ORTHROS_EXTRAS
+			OrthrosMmo::LocalPlayerRespawned();
+#endif
 			AfterDeathArrestSetUpShortCutTaxi();
 			pPlayerInfo.m_pPed->ClearWeapons();
 			SortOutStreamingAndMemory(pPlayerInfo.GetPos());

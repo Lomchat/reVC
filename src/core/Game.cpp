@@ -1,5 +1,6 @@
 #include "common.h"
 #include "orthros_extras.h"
+#include "mmo.h"
 #include "platform.h"
 
 #include "Game.h"
@@ -859,6 +860,7 @@ void CGame::Process(void)
 
 #ifdef ORTHROS_EXTRAS
 	OrthrosExtras::ProcessCheatList();
+	OrthrosMmo::BeginProcess();
 #endif
 	if (!CCutsceneMgr::IsCutsceneProcessing() && !CTimer::GetIsCodePaused())
 		FrontEndMenuManager.Process();
@@ -937,9 +939,15 @@ void CGame::Process(void)
 		CUserDisplay::Process();
 		CReplay::Update();
 
+#ifdef ORTHROS_EXTRAS
+		OrthrosMmo::PreWorld();
+#endif
 		PUSH_MEMID(MEMID_WORLD);
 		CWorld::Process();
 		POP_MEMID();
+#ifdef ORTHROS_EXTRAS
+		OrthrosMmo::PostWorld();
+#endif
 
 		gAccidentManager.Update();
 		CPacManPickups::Update();
@@ -971,6 +979,9 @@ void CGame::Process(void)
 			POP_MEMID();
 		}
 	}
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::EndProcess(); // (paused or not: the frame's records sent)
+#endif
 #ifdef GTA_PS2
 	CMemCheck::DoTest();
 #endif

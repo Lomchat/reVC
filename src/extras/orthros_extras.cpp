@@ -48,14 +48,21 @@ UseFreeSaves(bool on)
 // ---------------------------------------------------------------- the game's text
 // The game's fonts hold the French accented letters at the codes its French text uses (TEXT/french.gxt); an
 // accented capital they have not: its letter without the accent.
-static void
+void
 GameText(const char *utf8, wchar *out, int size)
 {
 	int n = 0;
 	for (const uint8 *s = (const uint8 *)utf8; *s && n < size - 1; ) {
 		uint32 c = *s++;
-		if (c >= 0xC0 && (*s & 0xC0) == 0x80) {
-			c = ((c & 0x1F) << 6) | (*s++ & 0x3F);
+		// (a letter in two, three or four bytes; a byte that starts none is taken as Latin-1)
+		const int more = c >= 0xC0 && c < 0xE0 ? 1 : c >= 0xE0 && c < 0xF0 ? 2 : c >= 0xF0 && c < 0xF8 ? 3 : 0;
+		int k = 0;
+		while (k < more && (s[k] & 0xC0) == 0x80)
+			k++;
+		if (more > 0 && k == more) {
+			c &= 0x3F >> more;
+			for (int i = 0; i < more; i++)
+				c = (c << 6) | (*s++ & 0x3F);
 		}
 		switch (c) {
 		case 0xE0: c = 0x97; break; // à
@@ -216,6 +223,12 @@ SwallowLeftButton(bool down)
 	if (!down)
 		swallowLeft = false;
 	return swallowLeft;
+}
+
+void
+SwallowLeftClick()
+{
+	swallowLeft = true;
 }
 
 void

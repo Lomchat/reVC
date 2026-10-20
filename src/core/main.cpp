@@ -1,5 +1,6 @@
 #include "common.h"
 #include "orthros_extras.h"
+#include "mmo.h"
 #include <time.h>
 #include "orthros_web.h"
 #include "rpmatfx.h"
@@ -1485,6 +1486,9 @@ Render2dStuff(void)
 
 	MusicManager.DisplayRadioStationName();
 	TheConsole.Display();
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::Render2d(); // (the other players' names, under the HUD)
+#endif
 #ifdef GTA_SCENE_EDIT
 	if(CSceneEdit::m_bEditOn)
 		CSceneEdit::Draw();
@@ -1691,6 +1695,7 @@ Idle(void *arg)
 	tbEndTimer("Render2dStuff-Fade");
 #ifdef ORTHROS_EXTRAS
 	OrthrosExtras::RenderCheatList();
+	OrthrosMmo::RenderOverlay();
 #endif
 	// CCredits::Render(); // They added it to function above and also forgot it here
 #ifdef XBOX_MESSAGE_SCREEN
@@ -1721,6 +1726,9 @@ FrontendIdle(void)
 	CFont::InitPerFrame();
 	CPad::UpdatePads();
 	FrontEndMenuManager.Process();
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::FrontendFrame(); // (the main menu runs no CGame::Process)
+#endif
 
 	if(RsGlobal.quit)
 		return;
