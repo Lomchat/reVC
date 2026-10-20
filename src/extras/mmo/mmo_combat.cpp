@@ -1747,6 +1747,27 @@ Combat_TestCommand(const char *cmd)
 		CPickups::CreateSomeMoney(ped->GetPosition() + 4.0f * ped->GetForward(), Clamp(amount, 1, 10000));
 		return true;
 	}
+	if (Word(cmd, "ram", &args)) {
+		// ram <slot> [speed]: the player's vehicle turned toward that player and launched (an administrator's)
+		int32 slot = -1;
+		float speed = 0.4f;
+		sscanf(args, "%d %f", &slot, &speed);
+		CVehicle *veh = Playing() && IsAdmin() ? FindPlayerVehicle() : nil;
+		const RemotePlayer *p = Player(slot);
+		if (veh == nil || p == nil)
+			return true;
+		const CVector to = (p->puppet ? p->puppet->GetPosition() : p->pos) - veh->GetPosition();
+		const float heading = CGeneral::GetATanOfXY(to.x, to.y) - HALFPI;
+		veh->SetHeading(heading);
+		veh->GetMatrix().UpdateRW();
+		veh->UpdateRwFrame();
+		CVector dir = to;
+		dir.z = 0.0f;
+		dir.Normalise();
+		veh->SetMoveSpeed(Clamp(speed, 0.0f, 1.0f) * dir);
+		veh->SetTurnSpeed(0.0f, 0.0f, 0.0f);
+		return true;
+	}
 	if (Word(cmd, "explode", &args)) {
 		// explode: a grenade's blast 5 m ahead of the player (an administrator's)
 		if (!Playing() || !IsAdmin())
@@ -1777,6 +1798,8 @@ Combat_Debug(void)
 	            lastSent.damage, lastSent.at > 0.0 ? now - lastSent.at : -1.0);
 	DebugAppend(",\"lastReceived\":{\"attacker\":%u,\"method\":%d,\"damage\":%.1f,\"ago\":%.0f}", lastReceived.target,
 	            lastReceived.method, lastReceived.damage, lastReceived.at > 0.0 ? now - lastReceived.at : -1.0);
+	CVehicle *veh = Playing() ? FindPlayerVehicle() : nil;
+	DebugAppend(",\"vehicleHealth\":%.1f", veh ? veh->m_fHealth : -1.0f);
 	DebugAppend(",\"fires\":%d,\"fired\":%d,\"lastFire\":{\"target\":%u,\"fired\":%s,\"state\":%d,\"hit\":%d,\"end\":[%.2f,%.2f,%.2f]}",
 	            fireCommands, firedCommands, lastFire.target, lastFire.fired ? "true" : "false", lastFire.state, lastFire.hit,
 	            lastFire.end.x, lastFire.end.y, lastFire.end.z);

@@ -444,7 +444,7 @@ void CBulletTraces::AddTrace(CVector* start, CVector* end, int32 weaponType, cla
 	CPhysical* player;
 	float speed;
 	int16 camMode;
-
+	
 #ifdef ORTHROS_EXTRAS
 	OrthrosMmo::BulletTrace(*start, *end, weaponType, shooter); // (a shared world: a local shot seen by the others)
 #endif
