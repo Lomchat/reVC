@@ -42,6 +42,9 @@
 #include <condition_variable>
 #endif
 #include "oal/stream.h"
+#ifdef __EMSCRIPTEN__
+#include "orthros_web.h"
+#endif
 
 #include "AudioManager.h"
 #include "MusicManager.h"
@@ -1386,6 +1389,12 @@ cSampleManager::LoadPedComment(uint32 nComment)
 		samplesSize -= size;
 	}
 #else
+#ifdef __EMSCRIPTEN__
+	// (the browser: a comment whose bytes are not here yet is not said this time — the page fetches them meanwhile —
+	// rather than the game waiting for the network)
+	if ( !OrthrosFileReady(fileno(fpSampleDataHandle), m_aSamples[nComment].nOffset, m_aSamples[nComment].nSize) )
+		return FALSE;
+#endif
 	if ( fseek(fpSampleDataHandle, m_aSamples[nComment].nOffset, SEEK_SET) != 0 )
 		return FALSE;
 	
@@ -2047,6 +2056,9 @@ cSampleManager::InitialiseSampleBanks(void)
 		return FALSE;
 	}
 	
+#ifdef __EMSCRIPTEN__
+	OrthrosFileComplete(fileno(fpSampleDataHandle)); // (its samples read at random as the game goes: all of it loaded in the background)
+#endif
 	fseek(fpSampleDataHandle, 0, SEEK_END);
 	int32 _nSampleDataEndOffset = ftell(fpSampleDataHandle);
 	rewind(fpSampleDataHandle);

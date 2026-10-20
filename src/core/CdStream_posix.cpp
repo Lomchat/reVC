@@ -98,6 +98,9 @@ struct CdReadInfo
 	bool bLocked;
 	bool bReading;
 	int32 nStatus;
+#ifdef __EMSCRIPTEN__
+	bool bWaiting; // (the browser: its bytes not here yet, the page fetching them — the game goes on meanwhile)
+#endif
 #ifdef ONE_THREAD_PER_CHANNEL
 	int8 nThreadStatus; // 0: created 1:priority set up 2:abort now
 	pthread_t pChannelThread;
@@ -131,6 +134,20 @@ bool _gbCdStreamOverlapped;
 #endif
 
 CdReadInfo *gpReadInfo;
+
+#ifdef __EMSCRIPTEN__
+#include "orthros_web.h"
+// The channel's read done now, its bytes here: its status ready for CdStreamGetStatus and CdStreamSync.
+static void
+CdStreamReadNow(CdReadInfo *pChannel)
+{
+	lseek(pChannel->hFile, (size_t)pChannel->nSectorOffset * (size_t)CDSTREAM_SECTOR_SIZE, SEEK_SET);
+	pChannel->nStatus = read(pChannel->hFile, pChannel->pBuffer, pChannel->nSectorsToRead * CDSTREAM_SECTOR_SIZE) == -1 ? STREAM_ERROR : STREAM_NONE;
+	pChannel->nSectorsToRead = 0;
+	pChannel->bWaiting = false;
+	pChannel->bReading = false;
+}
+#endif
 
 int32 lastPosnRead;
 
@@ -369,11 +386,15 @@ CdStreamRead(int32 channel, void *buffer, uint32 offset, uint32 size)
 	pChannel->bLocked = 0;
 
 #ifdef __EMSCRIPTEN__
-	// (one thread: the read is done now, its status ready for CdStreamGetStatus and CdStreamSync)
-	lseek(pChannel->hFile, (size_t)pChannel->nSectorOffset * (size_t)CDSTREAM_SECTOR_SIZE, SEEK_SET);
-	pChannel->nStatus = read(pChannel->hFile, pChannel->pBuffer, pChannel->nSectorsToRead * CDSTREAM_SECTOR_SIZE) == -1 ? STREAM_ERROR : STREAM_NONE;
-	pChannel->nSectorsToRead = 0;
-	pChannel->bReading = false;
+	// (one thread: the read is done now when its bytes are here; else the page fetches them in the background and the
+	// read is done once they are — CdStreamGetStatus polls, CdStreamSync waits —, the game going on meanwhile as
+	// with the original's streaming thread: a model not here yet shows a moment later, the game never stops for it)
+	if(OrthrosFileReady(pChannel->hFile, (double)pChannel->nSectorOffset * CDSTREAM_SECTOR_SIZE, pChannel->nSectorsToRead * CDSTREAM_SECTOR_SIZE))
+		CdStreamReadNow(pChannel);
+	else{
+		pChannel->bWaiting = true;
+		pChannel->bReading = true;
+	}
 	return STREAM_SUCCESS;
 #endif
 
@@ -399,6 +420,11 @@ CdStreamGetStatus(int32 channel)
 	ASSERT( channel < gNumChannels );
 	CdReadInfo *pChannel = &gpReadInfo[channel];
 	ASSERT( pChannel != nil );
+
+#ifdef __EMSCRIPTEN__
+	if(pChannel->bWaiting && OrthrosFileReady(pChannel->hFile, (double)pChannel->nSectorOffset * CDSTREAM_SECTOR_SIZE, pChannel->nSectorsToRead * CDSTREAM_SECTOR_SIZE))
+		CdStreamReadNow(pChannel);
+#endif
 
 #ifdef ONE_THREAD_PER_CHANNEL
 	if (pChannel->nThreadStatus == 2)
@@ -438,6 +464,15 @@ CdStreamSync(int32 channel)
 	ASSERT( channel < gNumChannels );
 	CdReadInfo *pChannel = &gpReadInfo[channel];
 	ASSERT( pChannel != nil );
+
+#ifdef __EMSCRIPTEN__
+	if(pChannel->bWaiting){
+		OrthrosFileWait(pChannel->hFile, (double)pChannel->nSectorOffset * CDSTREAM_SECTOR_SIZE, pChannel->nSectorsToRead * CDSTREAM_SECTOR_SIZE);
+		CdStreamReadNow(pChannel);
+	}
+	pChannel->bReading = false;
+	return pChannel->nStatus;
+#endif
 
 #ifdef FLUSHABLE_STREAMING
 	if (flushStream[channel]) {
@@ -646,6 +681,9 @@ CdStreamAddImage(char const *path)
 	}
 
 	gImgNames[gNumImages] = strdup(path);
+#ifdef __EMSCRIPTEN__
+	OrthrosFileComplete(gImgFiles[gNumImages]); // (read at random as the game goes: all of it loaded in the background)
+#endif
 	gImgFiles[gNumImages]++; // because -1: error 0: not used
 
 	strcpy(gCdImageNames[gNumImages], path);

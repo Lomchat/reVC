@@ -26,15 +26,21 @@ addToLibrary({
       return e.errno;
     }
   },
-  $orthrosRead__deps: ['$orthrosReadWait', '$orthrosReadv', '$SYSCALLS'],
+  // (the time the game stood still waiting for its files: Module.orthrosBlocked { count, ms, max, files: ms by path })
+  $orthrosBlocked: (t0, path) => {
+    var b = Module.orthrosBlocked || (Module.orthrosBlocked = { count: 0, ms: 0, max: 0, files: {} }), ms = performance.now() - t0;
+    b.count++; b.ms += ms; if (ms > b.max) b.max = ms;
+    if (path) b.files[path] = (b.files[path] || 0) + ms;
+  },
+  $orthrosRead__deps: ['$orthrosReadWait', '$orthrosReadv', '$SYSCALLS', '$orthrosBlocked'],
   $orthrosRead: (fd, iov, iovcnt, offset, pnum) => {
-    var wait = null;
+    var wait = null, stream = null;
     try {
-      var stream = SYSCALLS.getStreamFromFD(fd);
+      stream = SYSCALLS.getStreamFromFD(fd);
       wait = orthrosReadWait(stream, typeof offset == 'undefined' ? stream.position : offset, iov, iovcnt);
     } catch (e) { /* (a bad descriptor: the read reports it) */ }
     // (a fetch that failed: the read tries once more its own way — synchronously — and reports an error if it must)
-    if (wait) return wait.then(() => orthrosReadv(fd, iov, iovcnt, offset, pnum), () => orthrosReadv(fd, iov, iovcnt, offset, pnum));
+    if (wait) { var t0 = performance.now(), path = stream && stream.path; return wait.then(() => { orthrosBlocked(t0, path); return orthrosReadv(fd, iov, iovcnt, offset, pnum); }, () => { orthrosBlocked(t0, path); return orthrosReadv(fd, iov, iovcnt, offset, pnum); }); }
     return orthrosReadv(fd, iov, iovcnt, offset, pnum);
   },
   fd_read__async: true,

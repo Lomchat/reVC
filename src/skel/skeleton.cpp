@@ -403,7 +403,11 @@ RsInitialize(void)
 	RsGlobal.width = DEFAULT_SCREEN_WIDTH;
 	RsGlobal.height = DEFAULT_SCREEN_HEIGHT;
 	
+#ifdef __EMSCRIPTEN__
+	RsGlobal.maxFPS = 60; // (the browser: the frame limiter at 60, on the browser's frames — smooth on any screen)
+#else
 	RsGlobal.maxFPS = 30;
+#endif
 	 
 	RsGlobal.quit = FALSE;
 

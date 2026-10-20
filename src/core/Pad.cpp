@@ -876,7 +876,10 @@ CMouseControllerState CMousePointerStateHelper::GetMouseSetUp()
 	glfwGetCursorPos(PSGLOBAL(window), &xpos, &ypos);
 #else
     int xpos = 1, ypos;
+#ifndef __EMSCRIPTEN__
+    // (the browser: a mouse is there, SDL knowing no position yet at the game's start — x 0 meant none: no button bound)
     SDL_GetMouseState(&xpos, &ypos);
+#endif
 #endif
 	if (xpos != 0.f) {
 		state.MMB = true;

@@ -468,6 +468,16 @@ void LoadINIControllerSettings()
 			}
 		}
 	}
+#ifdef __EMSCRIPTEN__
+	// (the bindings of an earlier browser build, which saw no mouse at its start and bound none of its buttons — the fire
+	// button among them: none bound to the mouse at all, the mouse's defaults over them, the keys as they are)
+	bool mouseBound = false;
+	for (int32 i = 0; i < MAX_CONTROLLERACTIONS; i++)
+		if (ControlsManager.m_aSettings[i][MOUSE].m_Key != 0)
+			mouseBound = true;
+	if (!mouseBound)
+		ControlsManager.InitDefaultControlConfigMouse(MousePointerStateHelper.GetMouseSetUp());
+#endif
 }
 
 void SaveINIControllerSettings()
