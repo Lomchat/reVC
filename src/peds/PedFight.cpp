@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "main.h"
 #include "RpAnimBlend.h"
@@ -2063,6 +2064,10 @@ CPed::FightStrike(CVector &touchedNodePos, bool fightWithWeapon)
 	CPed *nearPed;
 	CVector extendedTouchPoint;
 
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::BlockFire(this)) // (a shared world's puppet strikes no one)
+		return false;
+#endif
 	CWeaponInfo *weaponInfo = CWeaponInfo::GetWeaponInfo(GetWeapon()->m_eWeaponType);
 	float radius = tFightMoves[m_curFightMove].strikeRadius;
 	if (fightWithWeapon)
@@ -2658,6 +2663,11 @@ CPed::InflictDamage(CEntity *damagedBy, eWeaponType method, float damage, ePedPi
 	bool willLinger = false;
 	int random;
 
+#ifdef ORTHROS_EXTRAS
+	bool mmoResult; // (a shared world: a puppet's damage goes to its owner)
+	if (OrthrosMmo::PedDamage(this, damagedBy, method, damage, pedPiece, direction, &mmoResult))
+		return mmoResult;
+#endif
 	if (damagedBy == FindPlayerPed() && damagedBy != this && damage > 3.0f)
 		++CWorld::Players[CWorld::PlayerInFocus].m_nHavocLevel;
 
@@ -3629,6 +3639,10 @@ CPed::KillPedWithCar(CVehicle *car, float impulse)
 	PedNode nodeToDamage;
 	eWeaponType killMethod;
 
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::PedHitByCar(this, car, impulse)) // (a shared world: told by the car's owner)
+		return;
+#endif
 	if (m_nPedState == PED_FALL || m_nPedState == PED_DIE) {
 		if (!m_pCollidingEntity || car->GetStatus() == STATUS_PLAYER)
 			m_pCollidingEntity = car;

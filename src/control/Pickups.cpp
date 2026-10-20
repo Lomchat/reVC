@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "main.h"
 
@@ -933,6 +934,9 @@ CPickups::WeaponForModel(int32 model)
 void
 CPickups::AddToCollectedPickupsArray(int32 index)
 {
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::PickupCollected(index); // (a shared world: taken for the others too)
+#endif
 	aPickUpsCollected[CollectedPickUpIndex++] = index | (aPickUps[index].m_nIndex << 16);
 	if (CollectedPickUpIndex >= NUMCOLLECTEDPICKUPS)
 		CollectedPickUpIndex = 0;
@@ -1393,7 +1397,11 @@ CPickups::CreateSomeMoney(CVector pos, int money)
 		pos.y += 1.5f * Cos((CGeneral::GetRandomNumber() % 256) * PI / 128);
 		pos.z = CWorld::FindGroundZFor3DCoord(pos.x, pos.y, pos.z, &found) + 0.5f;
 		if (found) {
+#ifdef ORTHROS_EXTRAS
+			OrthrosMmo::PickupCreated(CPickups::GenerateNewOne(CVector(pos.x, pos.y, pos.z), MI_MONEY, PICKUP_MONEY, moneyPerPickup + (CGeneral::GetRandomNumber() & 3))); // (a shared world: seen by the others)
+#else
 			CPickups::GenerateNewOne(CVector(pos.x, pos.y, pos.z), MI_MONEY, PICKUP_MONEY, moneyPerPickup + (CGeneral::GetRandomNumber() & 3));
+#endif
 		}
 	}
 }
@@ -1684,7 +1692,11 @@ CPed::CreateDeadPedWeaponPickups(void)
 		CreateDeadPedPickupCoors(&pickupPos.x, &pickupPos.y, &pickupPos.z);
 		pickupPos.z += 0.3f;
 		if (!CPickups::TryToMerge_WeaponType(pickupPos, weapon, PICKUP_ONCE_TIMEOUT, quantity, false)) {
+#ifdef ORTHROS_EXTRAS
+			OrthrosMmo::PickupCreated(CPickups::GenerateNewOne_WeaponType(pickupPos, weapon, PICKUP_ONCE_TIMEOUT, Min(weaponAmmo, quantity))); // (a shared world: seen by the others)
+#else
 			CPickups::GenerateNewOne_WeaponType(pickupPos, weapon, PICKUP_ONCE_TIMEOUT, Min(weaponAmmo, quantity));
+#endif
 		}
 	}
 	ClearWeapons();

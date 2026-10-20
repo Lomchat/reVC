@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 #include "main.h"
 
 #include "General.h"
@@ -4096,13 +4097,21 @@ CAutomobile::VehicleDamage(float impulse, uint16 damagedPiece)
 	int i;
 	float damageMultiplier = 0.333f;
 
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::VehicleImpulse(this, impulse, damagedPiece)) // (a shared world's puppet: to its owner)
+		return;
+#endif
 	if(impulse == 0.0f){
 		impulse = m_fDamageImpulse;
 		damagedPiece = m_nDamagePieceType;
 		damageMultiplier = 1.0f;
 	}
 
+#ifdef ORTHROS_EXTRAS
+	if(GetStatus() == STATUS_PLAYER && !OrthrosMmo::IsActive() && CStats::GetPercentageProgress() >= 100.0f) // (no 100 % reward in a shared world)
+#else
 	if(GetStatus() == STATUS_PLAYER && CStats::GetPercentageProgress() >= 100.0f)
+#endif
 		impulse *= 0.5f;
 
 	CVector pos(0.0f, 0.0f, 0.0f);
@@ -4804,6 +4813,10 @@ CAutomobile::BlowUpCar(CEntity *culprit)
 {
 	RpAtomic *atomic;
 
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::BlockBlowUp(this)) // (a shared world's puppet blows up when its owner's does)
+		return;
+#endif
 	if(!bCanBeDamaged)
 		return;
 
@@ -4906,6 +4919,10 @@ float fBurstForceMult = 0.03f;
 void
 CAutomobile::BurstTyre(uint8 wheel, bool applyForces)
 {
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::TyreBurst(this, wheel)) // (a shared world's puppet: to its owner)
+		return;
+#endif
 	if(GetModelIndex() == MI_RHINO || bTyresDontBurst)
 		return;
 

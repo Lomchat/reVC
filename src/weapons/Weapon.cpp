@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Weapon.h"
 #include "AnimBlendAssociation.h"
@@ -163,6 +164,10 @@ CWeapon::Fire(CEntity *shooter, CVector *fireSource)
 {
 	ASSERT(shooter!=nil);
 
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::BlockFire(shooter)) // (a shared world's puppet: its owner's shots are shown, not made)
+		return false;
+#endif
 	CVector fireOffset(0.0f, 0.0f, 0.6f);
 	CVector *source = fireSource;
 #ifdef FIX_BUGS
@@ -385,7 +390,12 @@ CWeapon::Fire(CEntity *shooter, CVector *fireSource)
 			if (m_nAmmoInClip > 0)
 				m_nAmmoInClip--;
 
+#ifdef ORTHROS_EXTRAS
+			// (a shared world has no 100 % reward: the ammo runs out)
+			if (m_nAmmoTotal > 0 && (m_nAmmoTotal < 25000 || isPlayer) && (!isPlayer || OrthrosMmo::IsActive() || CStats::GetPercentageProgress() < 100.0f || m_eWeaponType == WEAPONTYPE_DETONATOR))
+#else
 			if (m_nAmmoTotal > 0 && (m_nAmmoTotal < 25000 || isPlayer) && (!isPlayer || CStats::GetPercentageProgress() < 100.0f || m_eWeaponType == WEAPONTYPE_DETONATOR))
+#endif
 				m_nAmmoTotal--;
 
 			if (m_eWeaponState == WEAPONSTATE_READY && m_eWeaponType == WEAPONTYPE_FLAMETHROWER)
@@ -447,6 +457,10 @@ CWeapon::FireFromCar(CVehicle *shooter, bool left, bool right)
 {
 	ASSERT(shooter!=nil);
 
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::BlockFire(shooter))
+		return false;
+#endif
 	if ( m_eWeaponState != WEAPONSTATE_READY && m_eWeaponState != WEAPONSTATE_FIRING )
 		return false;
 
@@ -460,7 +474,11 @@ CWeapon::FireFromCar(CVehicle *shooter, bool left, bool right)
 		if ( m_nAmmoInClip > 0 )
 			m_nAmmoInClip--;
 
+#ifdef ORTHROS_EXTRAS
+		if ( m_nAmmoTotal < 25000 && m_nAmmoTotal > 0 && (!shooter || shooter->GetStatus() != STATUS_PLAYER || OrthrosMmo::IsActive() || CStats::GetPercentageProgress() < 100.f))
+#else
 		if ( m_nAmmoTotal < 25000 && m_nAmmoTotal > 0 && (!shooter || shooter->GetStatus() != STATUS_PLAYER || CStats::GetPercentageProgress() < 100.f))
+#endif
 			m_nAmmoTotal--;
 
 		m_eWeaponState = WEAPONSTATE_FIRING;

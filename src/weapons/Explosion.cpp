@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Automobile.h"
 #include "Bike.h"
@@ -115,6 +116,9 @@ CExplosion::AddExplosion(CEntity *explodingEntity, CEntity *culprit, eExplosionT
 	RwRGBA color = colAddExplosion;
 	RwRGBA colorGrenade = colGrenade;
 	bool bDontExplode = false;
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::ExplosionAdded(explodingEntity, culprit, type, pos, lifetime); // (a shared world: a local blast seen by the others)
+#endif
 	pPosn = pos;
 	pPosn.z += 5.0f;
 #ifdef FIX_BUGS

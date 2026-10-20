@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "BulletInfo.h"
 
@@ -70,6 +71,9 @@ void CBulletInfo::Shutdown(void)
 
 bool CBulletInfo::AddBullet(CEntity* pSource, eWeaponType type, CVector vecPosition, CVector vecSpeed)
 {
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::BulletAdded(type, pSource, vecPosition, vecSpeed); // (a shared world: a local sniper shot seen by the others)
+#endif
 	int i;
 	for (i = 0; i < NUM_BULLETS; i++) {
 		if (!gaBulletInfo[i].m_bInUse)

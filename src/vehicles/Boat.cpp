@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "main.h"
 #include "General.h"
@@ -228,7 +229,11 @@ CBoat::ProcessControl(void)
 
 	float collisionDamage = pHandling->fCollisionDamageMultiplier * m_fDamageImpulse;
 #ifdef FIX_BUGS
+#ifdef ORTHROS_EXTRAS
+	if(GetStatus() == STATUS_PLAYER && !OrthrosMmo::IsActive() && CStats::GetPercentageProgress() >= 100.0f) // (no 100 % reward in a shared world)
+#else
 	if(GetStatus() == STATUS_PLAYER && CStats::GetPercentageProgress() >= 100.0f)
+#endif
 		collisionDamage *= 0.5f;
 	if (collisionDamage > 25.0f && GetStatus() != STATUS_WRECKED && !bCollisionProof) {
 #else
@@ -238,7 +243,11 @@ CBoat::ProcessControl(void)
 		if(prevHealth >= 250.0f){
 #ifndef FIX_BUGS
 			// if collisionDamage < 50 we actually increase health here...
+#ifdef ORTHROS_EXTRAS
+			if(GetStatus() == STATUS_PLAYER && !OrthrosMmo::IsActive() && CStats::GetPercentageProgress() >= 100.0f)
+#else
 			if(GetStatus() == STATUS_PLAYER && CStats::GetPercentageProgress() >= 100.0f)
+#endif
 				collisionDamage *= 0.5f;
 #endif
 			if(this == FindPlayerVehicle()){
@@ -839,6 +848,10 @@ CBoat::BlowUpCar(CEntity *culprit)
 	RwMatrix *matrix;
 	CObject *obj;
 
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::BlockBlowUp(this)) // (a shared world's puppet blows up when its owner's does)
+		return;
+#endif
 	if(!bCanBeDamaged)
 		return;
 

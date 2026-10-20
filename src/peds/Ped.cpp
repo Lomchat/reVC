@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "main.h"
 #include "Pools.h"
@@ -7026,6 +7027,10 @@ CPed::PedEvadeCB(CAnimBlendAssociation* animAssoc, void* arg)
 void
 CPed::SetDie(AnimationId animId, float delta, float speed)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::BlockPuppetDeath(this)) // (a shared world's puppet dies when its owner says so)
+		return;
+#endif
 	if (m_attractor)
 		GetPedAttractorManager()->DeRegisterPed(this, m_attractor);
 	CPlayerPed *player = FindPlayerPed();
@@ -7098,6 +7103,10 @@ CPed::FinishDieAnimCB(CAnimBlendAssociation *animAssoc, void *arg)
 void
 CPed::SetDead(void)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::BlockPuppetDeath(this))
+		return;
+#endif
 	if (!RpAnimBlendClumpGetAssociation(GetClump(), ANIM_STD_DROWN))
 		bUsesCollision = false;
 
