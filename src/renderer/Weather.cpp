@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Weather.h"
 
@@ -144,7 +145,11 @@ void CWeather::Update(void)
 {
 	if(!CReplay::IsPlayingBack()){
 		float fNewInterpolation = (CClock::GetMinutes() + CClock::GetSeconds()/60.0f)/60.0f;
-		if (fNewInterpolation < InterpolationValue) {
+		if (fNewInterpolation < InterpolationValue
+#ifdef ORTHROS_EXTRAS
+			&& !OrthrosMmo::WeatherUpdate()
+#endif
+		) {
 			// new hour
 			OldWeatherType = NewWeatherType;
 			if (ForcedWeatherType >= 0)
@@ -158,6 +163,9 @@ void CWeather::Update(void)
 	}
 
 #ifndef FINAL
+#ifdef ORTHROS_EXTRAS
+	if (!OrthrosMmo::IsActive())
+#endif
 	if (CPad::GetPad(1)->GetRightShockJustDown()) {
 		NewWeatherType = (NewWeatherType + 1) % WEATHER_TOTAL;
 		OldWeatherType = NewWeatherType;

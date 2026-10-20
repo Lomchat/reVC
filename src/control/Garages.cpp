@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Garages.h"
 #include "main.h"
@@ -977,6 +978,10 @@ void CGarage::Update()
 	case GARAGE_HIDEOUT_TEN:
 	case GARAGE_HIDEOUT_ELEVEN:
 	case GARAGE_HIDEOUT_TWELVE:
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::HideoutMirrored(this))
+			break;
+#endif
 		switch (m_eGarageState) {
 		case GS_OPENED:
 		{
@@ -985,6 +990,9 @@ void CGarage::Update()
 			// or if player is very very far so that we can remove whatever is blocking garage door without him noticing
 			if ((distance > SQR(DISTANCE_TO_CLOSE_HIDEOUT_GARAGE_IN_CAR) ||
 				!FindPlayerVehicle() && distance > SQR(DISTANCE_TO_CLOSE_HIDEOUT_GARAGE_ON_FOOT)) &&
+#ifdef ORTHROS_EXTRAS
+				!OrthrosMmo::HideoutKeepOpen(this) &&
+#endif
 				!IsAnyCarBlockingDoor())
 				m_eGarageState = GS_CLOSING;
 			else if (FindPlayerVehicle() &&
@@ -1025,7 +1033,11 @@ void CGarage::Update()
 						}
 					}
 				}
+#ifdef ORTHROS_EXTRAS
+				else if (OrthrosMmo::HideoutMayOpen(this) && RestoreCarsForThisHideout(CGarages::aCarsInSafeHouses[CGarages::FindSafeHouseIndexForGarageType(m_eGarageType)]))
+#else
 				else if (RestoreCarsForThisHideout(CGarages::aCarsInSafeHouses[CGarages::FindSafeHouseIndexForGarageType(m_eGarageType)]))
+#endif
 					m_eGarageState = GS_OPENING;
 			}
 			break;
@@ -1301,6 +1313,10 @@ void CGarage::ThrowCarsNearDoorOutOfGarage(CVehicle* pException)
 		CVehicle* pVehicle = CPools::GetVehiclePool()->GetSlot(i);
 		if (!pVehicle || pVehicle == pException)
 			continue;
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::GarageLeaveAlone(pVehicle))
+			continue;
+#endif
 		if (!IsEntityTouching3D(pVehicle))
 			continue;
 		CColModel* pColModel = pVehicle->GetColModel();
@@ -1377,6 +1393,10 @@ void CGarage::RemoveCarsBlockingDoorNotInside()
 		CVehicle* pVehicle = CPools::GetVehiclePool()->GetSlot(i);
 		if (!pVehicle)
 			continue;
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::GarageLeaveAlone(pVehicle))
+			continue;
+#endif
 		if (!IsEntityTouching3D(pVehicle))
 			continue;
 		if (!IsPointInsideGarage(pVehicle->GetPosition())) {
@@ -1909,6 +1929,10 @@ void CGarage::StoreAndRemoveCarsForThisHideout(CStoredCar* aCars, int32 nMax)
 		CVehicle* pVehicle = CPools::GetVehiclePool()->GetSlot(i);
 		if (!pVehicle)
 			continue;
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::GarageLeaveAlone(pVehicle))
+			continue;
+#endif
 		if (IsPointInsideGarage(pVehicle->GetPosition())) {
 			if (pVehicle->VehicleCreatedBy != MISSION_VEHICLE) {
 				if (index < Max(NUM_GARAGE_STORED_CARS, nMax) && !EntityHasASphereWayOutsideGarage(pVehicle, 1.0f))
@@ -1922,6 +1946,9 @@ void CGarage::StoreAndRemoveCarsForThisHideout(CStoredCar* aCars, int32 nMax)
 	// why?
 	for (i = index; i < NUM_GARAGE_STORED_CARS; i++)
 		aCars[i].Clear();
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::HideoutStored(this, aCars);
+#endif
 }
 
 bool CGarage::RestoreCarsForThisHideout(CStoredCar* aCars)
@@ -1998,6 +2025,10 @@ void CGarage::TidyUpGarage()
 	while (--i) {
 #endif
 		CVehicle* pVehicle = CPools::GetVehiclePool()->GetSlot(i);
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::GarageLeaveAlone(pVehicle))
+			continue;
+#endif
 		if (pVehicle && (pVehicle->IsCar() || pVehicle->IsBike())) {
 			if (IsPointInsideGarage(pVehicle->GetPosition())) {
 				if (pVehicle->GetStatus() == STATUS_WRECKED || pVehicle->GetUp().z < 0.5f) {
@@ -2020,6 +2051,10 @@ void CGarage::TidyUpGarageClose()
 		CVehicle* pVehicle = CPools::GetVehiclePool()->GetSlot(i);
 		if (!pVehicle)
 			continue;
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::GarageLeaveAlone(pVehicle))
+			continue;
+#endif
 		if ((!pVehicle->IsCar() && !pVehicle->IsBike()) || pVehicle->GetStatus() != STATUS_WRECKED || !IsEntityTouching3D(pVehicle))
 			continue;
 		bool bRemove = false;
