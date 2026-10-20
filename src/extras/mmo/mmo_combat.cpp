@@ -81,8 +81,8 @@ enum {
 enum { REACT_WEAPON, REACT_FIGHT };
 
 enum {
-	STALE_HIT = 8000,      // (ms of server time: a hit older is dropped — a tab hidden meanwhile, its queue replayed)
-	STALE_EFFECT = 4000,   // (…an effect older is not shown)
+	STALE_HIT = 20000,     // (ms of server time: a hit older is dropped — a tab hidden meanwhile, its queue replayed;
+	STALE_EFFECT = 15000,  // a blast older is not replayed. Generous: a slow machine's frame may take seconds)
 	NEAR = 300,            // (m: an event is sent only when a remote player is this near)
 	SHOTS_PER_SECOND = 40, // (traces, sniper bullets, flames told at most this often)
 	DEATH_MEMORY = 30000,  // (ms: the last network hit names the killer for this long)
@@ -659,6 +659,7 @@ OnShot(In &in)
 	if (!in.Ok() || weapon >= WEAPONTYPE_TOTALWEAPONS)
 		return;
 	CEntity *shooter = Culprit(shooterId);
+	const bool wasReplaying = bReplaying;
 	bReplaying = true;
 	if (flags & 1) {
 		MuzzleFlash(weapon, start, end);
@@ -666,7 +667,7 @@ OnShot(In &in)
 	}
 	CBulletTraces::AddTrace(&start, &end, weapon, shooter);
 	Impact(start, end);
-	bReplaying = false;
+	bReplaying = wasReplaying;
 }
 
 static void
@@ -687,13 +688,14 @@ OnSniper(In &in)
 	if (CWorld::ProcessLineOfSight(pos, end, point, hit, true, true, true, true, true, false, false, true))
 		end = point.point;
 	CWorld::pIgnoreEntity = nil;
+	const bool wasReplaying = bReplaying;
 	bReplaying = true;
 	if (shooter) {
 		MuzzleFlash(weapon, shooter->GetPosition() + CVector(0.0f, 0.0f, 0.6f), end);
 		ShotSound(shooter);
 	}
 	Impact(pos, end);
-	bReplaying = false;
+	bReplaying = wasReplaying;
 }
 
 // (a remote flame: its particles; its shot, which sets on fire what we own as it goes — PostWorld)
@@ -709,11 +711,12 @@ OnFlame(In &in)
 	if (dir.MagnitudeSqr() < 0.0001f)
 		return;
 	dir.Normalise();
+	const bool wasReplaying = bReplaying;
 	bReplaying = true;
 	if (shooter && shooter->IsPed())
 		CShotInfo::AddShot(shooter, WEAPONTYPE_FLAMETHROWER, start, end);
 	CWeapon::GenerateFlameThrowerParticles(start, dir);
-	bReplaying = false;
+	bReplaying = wasReplaying;
 }
 
 // (the remote flames' shots: what they reach of ours catches fire, as CShotInfo::Update does with the shooter's near
@@ -788,9 +791,10 @@ OnProjectile(int32 from, In &in)
 	bMakingProjectile = true;
 	makingFrom = from;
 	makingId = id;
+	const bool wasReplaying = bReplaying;
 	bReplaying = true;
 	const bool made = CProjectileInfo::AddProjectile(shooter, (eWeaponType)weapon, pos, 0.0f);
-	bReplaying = false;
+	bReplaying = wasReplaying;
 	bMakingProjectile = false;
 	if (!made)
 		return;
@@ -841,6 +845,7 @@ Wreck(CVehicle *veh, CEntity *culprit, bool explode)
 {
 	if (veh->GetStatus() == STATUS_WRECKED)
 		return;
+	const bool wasReplaying = bReplaying;
 	bReplaying = true;
 	bWrecking = true;
 	if (explode)
@@ -859,7 +864,7 @@ Wreck(CVehicle *veh, CEntity *culprit, bool explode)
 		}
 	}
 	bWrecking = false;
-	bReplaying = false;
+	bReplaying = wasReplaying;
 }
 
 static void
@@ -881,9 +886,10 @@ OnExplosion(In &in)
 		Wreck((CVehicle *)exploding, culprit, true);
 		return;
 	}
+	const bool wasReplaying = bReplaying;
 	bReplaying = true;
 	CExplosion::AddExplosion(exploding, culprit, (eExplosionType)type, pos, lifetime);
-	bReplaying = false;
+	bReplaying = wasReplaying;
 }
 
 // ---------------------------------------------------------------- deaths
