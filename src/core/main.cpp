@@ -1,4 +1,5 @@
 #include "common.h"
+#include "orthros_extras.h"
 #include <time.h>
 #include "orthros_web.h"
 #include "rpmatfx.h"
@@ -1688,6 +1689,9 @@ Idle(void *arg)
 	tbStartTimer(0, "Render2dStuff-Fade");
 	Render2dStuffAfterFade();
 	tbEndTimer("Render2dStuff-Fade");
+#ifdef ORTHROS_EXTRAS
+	OrthrosExtras::RenderCheatList();
+#endif
 	// CCredits::Render(); // They added it to function above and also forgot it here
 #ifdef XBOX_MESSAGE_SCREEN
 	FrontEndMenuManager.DrawOverlays();

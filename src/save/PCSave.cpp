@@ -1,5 +1,11 @@
 #define WITHWINDOWS
 #include "common.h"
+#include "orthros_extras.h"
+#ifdef ORTHROS_EXTRAS
+#define SAVE_FILE_PREFIX OrthrosExtras::SaveFilePrefix()
+#else
+#define SAVE_FILE_PREFIX "GTAVCsf"
+#endif
 #include "crossplatform.h"
 
 #include "FileMgr.h"
@@ -20,12 +26,12 @@ void
 C_PcSave::SetSaveDirectory(const char *path)
 {
 #if defined ANDROID || defined __APPLE__
-	sprintf(DefaultPCSaveFileName, "%s/%s", path, "GTAVCsf");
+	sprintf(DefaultPCSaveFileName, "%s/%s", path, SAVE_FILE_PREFIX);
 #if defined ANDROID
     debug("SetSaveDirectory: %s", DefaultPCSaveFileName);
 #endif
 #else
-    sprintf(DefaultPCSaveFileName, "%s\\%s", path, "GTAVCsf");
+    sprintf(DefaultPCSaveFileName, "%s\\%s", path, SAVE_FILE_PREFIX);
 #endif
 }
 

@@ -1,5 +1,6 @@
 #define WITHWINDOWS
 #include "common.h"
+#include "orthros_extras.h"
 #include "crossplatform.h"
 #include "main.h"
 
@@ -515,6 +516,9 @@ CopySizeAndPreparePointer(uint8 *&buf, uint8 *&postbuf, uint8 *&postbuf2, uint32
 void
 DoGameSpecificStuffBeforeSave()
 {
+#ifdef ORTHROS_EXTRAS
+	if (!OrthrosExtras::bFreeMode) // (the free mode saves anywhere: the time stays the game's)
+#endif
 	CGameLogic::PassTime(360);
 	CPlayerPed *ped = FindPlayerPed();
 	ped->m_fCurrentStamina = ped->m_fMaxStamina;

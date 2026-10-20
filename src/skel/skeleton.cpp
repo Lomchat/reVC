@@ -1,4 +1,9 @@
 #include "common.h"
+#include "orthros_extras.h"
+#ifdef ORTHROS_EXTRAS
+#include "PCSave.h"
+const char *_psGetUserFilesFolder();
+#endif
 
 
 #include <stdio.h>
@@ -150,6 +155,14 @@ rsCommandLine(RwChar *arg)
 static RwBool
 rsPreInitCommandLine(RwChar *arg)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosExtras::CommandLine(arg))
+	{
+		C_PcSave::SetSaveDirectory(_psGetUserFilesFolder());
+
+		return TRUE;
+	}
+#endif
 	if( !strcmp(arg, RWSTRING("-vms")) )
 	{
 		DefaultVideoMode = FALSE;

@@ -1,4 +1,5 @@
 #include "common.h"
+#include "orthros_extras.h"
 #include "platform.h"
 
 #include "Game.h"
@@ -853,6 +854,9 @@ void CGame::Process(void)
 #endif
 	CCutsceneMgr::Update();
 
+#ifdef ORTHROS_EXTRAS
+	OrthrosExtras::ProcessCheatList();
+#endif
 	if (!CCutsceneMgr::IsCutsceneProcessing() && !CTimer::GetIsCodePaused())
 		FrontEndMenuManager.Process();
 

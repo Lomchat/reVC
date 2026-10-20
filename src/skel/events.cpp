@@ -1,4 +1,5 @@
 #include "common.h"
+#include "orthros_extras.h"
 #include "Pad.h"
 #include "ControllerConfig.h"
 #include "Frontend.h"
@@ -20,6 +21,15 @@ HandleKeyDown(RsKeyStatus *keyStatus)
 	
 	RwInt32 c = keyStatus->keyCharCode;
 	
+#ifdef ORTHROS_EXTRAS
+	// (the cheat list closed at the key - Esc, Enter, Backspace -, whatever the frame rate; the game never sees it)
+	if ( (c == rsESC || c == rsENTER || c == rsPADENTER || c == rsBACKSP) && OrthrosExtras::IsCheatListOpen() )
+	{
+		OrthrosExtras::ToggleCheatList();
+		return rsEVENTPROCESSED;
+	}
+#endif
+
 	if ( c != rsNULL )
 	{
 		switch (c)

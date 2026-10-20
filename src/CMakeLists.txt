@@ -65,6 +65,12 @@ target_compile_definitions(${EXECUTABLE}
         CMAKE_NO_AUTOLINK
 )
 
+# Orthros' modified game (src/extras/orthros_extras.h): the HELP cheat, the free mode
+option(${PROJECT}_ORTHROS_EXTRAS "Build Orthros' additions to the game (HELP cheat, free mode)" OFF)
+if(${PROJECT}_ORTHROS_EXTRAS)
+    target_compile_definitions(${EXECUTABLE} PRIVATE ORTHROS_EXTRAS)
+endif()
+
 if(LIBRW_PLATFORM_D3D9)
     target_compile_definitions(${EXECUTABLE}
         PUBLIC

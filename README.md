@@ -40,12 +40,25 @@ What differs from the desktop build, all under `__EMSCRIPTEN__`:
 - **One thread, the browser's turn.** The main loop waits for the browser's next frame (JSPI suspends the WebAssembly
   stack), long loads give it its turn; a file read whose bytes the page has not fetched yet suspends the engine while
   they come (`src/skel/orthros_fs.js`, the page's `node.orthrosStreamed`) instead of a synchronous request.
-- **Frames.** The 30 fps frame limiter meets its period at the frame the browser shows (whole-millisecond timer:
-  20-30 fps otherwise). Windowed mode at the canvas' size (an exclusive mode's screen size skewed the camera and the
+- **Frames.** The frame limiter at 60 fps, meeting its period at the frame the browser shows (whole-millisecond timer:
+  a frame skipped otherwise). Windowed mode at the canvas' size (an exclusive mode's screen size skewed the camera and the
   menus' hit areas). WebGL 2: GLSL ES 3.00, S3TC kept compressed, a vertex array object per mesh, immediate draws
   uploaded in one exact-size call (WebGL zero-fills a buffer allocated without data).
-- **Files and sound.** The CD image read at once; no `models/txd.img` conversion; `userfiles/` created under musl;
-  OpenAL's default device without enumeration; the render callbacks' types fixed for WebAssembly's indirect calls.
+- **Files and sound.** The CD image streamed without stopping the game: a model whose bytes are not here yet is read
+  once the page has them, as the original's streaming thread would; pedestrians' lines not here yet are skipped; no
+  `models/txd.img` conversion; `userfiles/` created under musl; OpenAL's default device without enumeration; the
+  render callbacks' types fixed for WebAssembly's indirect calls.
+- **The mouse.** Its buttons bound even though SDL knows no cursor position at the start (bindings saved without any
+  mouse button get the mouse's defaults back).
+
+`-DREVC_ORTHROS_EXTRAS=ON` builds Orthros' modified game on top (`src/extras/orthros_extras.h`, define
+`ORTHROS_EXTRAS`; without it nothing changes):
+- **The HELP cheat**: the cheats by kind, sorted, in the game's own fonts and colours, over the paused game (English
+  or French as the game); HELP, Enter, Backspace or Esc close it.
+- **The free mode** (`-freemode` on the command line): its own save files (`GTAVCfree<n>.b`), started from the most
+  recent of them, the first time from a game completed at 100 % found among the game's files (`orthros/freemode.b`,
+  copied to the first slot); "Save Game" in the pause menu, anywhere but during a mission, without the six hours a
+  safe house's save lets pass.
 
 ## Screenshots
 

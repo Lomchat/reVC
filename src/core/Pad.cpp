@@ -1,5 +1,6 @@
 #define WITHDINPUT
 #include "common.h"
+#include "orthros_extras.h"
 #include "crossplatform.h"
 #include "platform.h"
 #ifdef XINPUT
@@ -1629,6 +1630,13 @@ void CPad::AddToPCCheatString(char c)
 	// WATERLAYERSCHEAT
 	if (!_CHEATCMP("TAEHCSREYALRETAW"))
 		RenderWaterLayersCheat();
+#endif
+#ifdef ORTHROS_EXTRAS
+	// "HELP"
+	if (!_CHEATCMP("PLEH")) {
+		KeyBoardCheatString[0] = ' ';
+		OrthrosExtras::ToggleCheatList();
+	}
 #endif
 
 #undef _CHEATCMP
