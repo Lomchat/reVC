@@ -877,8 +877,12 @@ RefreshList(void)
 	Row was = { R_NONE, -1 };
 	if (m.m_nCurrScreen == page && m.m_nCurrOption >= 0 && m.m_nCurrOption < NUM_MENUROWS)
 		was = lobby.rows[page - PAGE_FIRST][m.m_nCurrOption];
+	const bool arriving = !(lobby.shape[page - PAGE_FIRST] & 0x10000u) && status == ST_LIST;
 	BuildList(status);
 	if (m.m_nCurrScreen == page) {
+		// (the list just come: the cursor on its first character, "New character" when there is none)
+		if (arriving)
+			was = Lobby().count > 0 ? Row{ R_CHARACTER, 0 } : Row{ R_NEW, -1 };
 		if (was.role == R_CHARACTER && was.index >= Lobby().count)
 			was.index = Lobby().count - 1;
 		SelectRow(page, was.role, was.role == R_CHARACTER ? was.index : -1);
@@ -1123,7 +1127,8 @@ LabelText(char *out, int32 size)
 		else if (MessageOn(page))
 			snprintf(out, size, "%s", MessageText(MessageOn(page)));
 		else
-			snprintf(out, size, Tr("Account %s: %d of %d characters%s.", "Compte %s : %d personnages sur %d%s."), l.username,
+			snprintf(out, size, l.count > 1 ? Tr("Account %s: %d of %d characters%s.", "Compte %s : %d personnages sur %d%s.")
+			                                : Tr("Account %s: %d of %d character%s.", "Compte %s : %d personnage sur %d%s."), l.username,
 			         l.count, l.maxCharacters, l.admin ? Tr(" (administrator)", " (administrateur)") : "");
 		break;
 	}
