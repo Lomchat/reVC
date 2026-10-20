@@ -28,6 +28,8 @@ WEAK void TextInput(const char *) {}
 WEAK bool OverlayHasMouse(void) { return false; }
 WEAK void OverlayMouse(float, float) {}
 WEAK bool OverlayClick(float, float) { return false; }
+WEAK void LocalPlayerDied(void) {}
+WEAK void LocalPlayerRespawned(void) {}
 // entities
 WEAK bool IsPuppet(const CEntity *) { return false; }
 WEAK bool PuppetPedControl(CPed *) { return false; }
@@ -55,8 +57,6 @@ WEAK void ExplosionAdded(CEntity *, CEntity *, int32, const CVector &, uint32) {
 WEAK bool SkipAreaDamage(CEntity *) { return false; }
 WEAK void PickupCreated(int32) {}
 WEAK void PickupCollected(int32) {}
-WEAK void LocalPlayerDied(void) {}
-WEAK void LocalPlayerRespawned(void) {}
 // world
 WEAK bool ClockUpdate(void) { return false; }
 WEAK bool WeatherUpdate(void) { return false; }
@@ -187,6 +187,8 @@ WEAK void Combat_OnEvent(int32, int32, In &) {}
 WEAK void Combat_OnTargeted(int32, uint32, int32, In &) {}
 WEAK bool Combat_TestCommand(const char *) { return false; }
 WEAK void Combat_Debug(void) {}
+WEAK void Combat_PlayerDied(void) {}
+WEAK void Combat_PlayerRespawned(void) {}
 
 WEAK void World_Changed(void) {}
 WEAK void World_OnWorldEvent(int32, int32, int32) {}
@@ -198,7 +200,7 @@ WEAK void World_Reset(void) {}
 WEAK void World_OnEvent(int32, int32, In &) {}
 WEAK bool World_TestCommand(const char *) { return false; }
 WEAK void World_Debug(void) {}
-WEAK bool World_CheatRequested(int32) { return false; }
+WEAK bool World_CheatRequested(const char *) { return false; }
 
 WEAK void Social_OnChat(int32, int32, const char *, const char *) {}
 WEAK void Social_OnDenied(int32, int32) {}

@@ -250,6 +250,8 @@ void Combat_OnEvent(int32 from, int32 sub, In &in);
 void Combat_OnTargeted(int32 from, uint32 target, int32 sub, In &in);
 bool Combat_TestCommand(const char *cmd);
 void Combat_Debug(void);
+void Combat_PlayerDied(void);
+void Combat_PlayerRespawned(void);
 // world (mmo_world.cpp)
 void World_Changed(void);                   // WORLD received (or WELCOME's)
 void World_OnWorldEvent(int32 from, int32 id, int32 arg);
@@ -261,8 +263,9 @@ void World_Reset(void);
 void World_OnEvent(int32 from, int32 sub, In &in);
 bool World_TestCommand(const char *cmd);
 void World_Debug(void);
-// The world cheats, as the social module asks for them (admins): true = it was a world cheat (sent to the server).
-bool World_CheatRequested(int32 cheat);
+// A cheat typed by an admin (its code as the HELP list shows it, e.g. "ALOVELYDAY"): true = a world cheat, sent to
+// the server (not applied here now); false = a personal one, the game's own code applies it.
+bool World_CheatRequested(const char *code);
 // social (mmo_social.cpp)
 void Social_OnChat(int32 from, int32 kind, const char *name, const char *text);
 void Social_OnDenied(int32 type, int32 reason);

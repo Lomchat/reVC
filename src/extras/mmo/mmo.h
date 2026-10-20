@@ -48,6 +48,10 @@ namespace OrthrosMmo
 	bool OverlayHasMouse(void);
 	void OverlayMouse(float x, float y);
 	bool OverlayClick(float x, float y);
+	// The local player died (GameLogic.cpp, before KillPlayer) / was respawned (after the restore): told to the
+	// session and combat modules.
+	void LocalPlayerDied(void);
+	void LocalPlayerRespawned(void);
 
 	// ---------------------------------------------------------------- entities (mmo_entities.cpp)
 	// A copy of another client's entity (ambient puppet or remote player): no AI, no physics, never deleted by the
@@ -103,9 +107,6 @@ namespace OrthrosMmo
 	// Pickups: a dynamic one created (CPickups::GenerateNewOne result), one collected by the local player.
 	void PickupCreated(int32 handle);
 	void PickupCollected(int32 slot);
-	// The local player died (GameLogic.cpp, before KillPlayer) / was respawned (after the restore).
-	void LocalPlayerDied(void);
-	void LocalPlayerRespawned(void);
 
 	// ---------------------------------------------------------------- world (mmo_world.cpp)
 	// CClock::Update on entry: true = the shared clock set it.
