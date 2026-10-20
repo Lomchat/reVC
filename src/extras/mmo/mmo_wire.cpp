@@ -1466,8 +1466,11 @@ EndProcess(void)
 void
 FrontendFrame(void)
 {
-	if (Dormant())
+	// (the lobby's start-menu row and its pages' switches are kept even while no shared world is wanted)
+	if (Dormant()) {
+		Lobby_FrontendFrame();
 		return;
+	}
 	Session_FrontendFrame();
 	Lobby_FrontendFrame();
 	Flush();
