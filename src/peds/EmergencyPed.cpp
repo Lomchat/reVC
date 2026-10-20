@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "EmergencyPed.h"
 #include "DMAudio.h"
@@ -44,6 +45,10 @@ CEmergencyPed::InRange(CPed *victim)
 void
 CEmergencyPed::ProcessControl(void)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::PuppetPedControl(this)) // (a shared world's copy: moved by its owner's states)
+		return;
+#endif
 	CPed::ProcessControl();
 	if (bWasPostponed)
 		return;

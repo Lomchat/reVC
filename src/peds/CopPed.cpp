@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "World.h"
 #include "PlayerPed.h"
@@ -590,6 +591,10 @@ CCopPed::CopAI(void)
 void
 CCopPed::ProcessControl(void)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::PuppetPedControl(this)) // (a shared world's copy: moved by its owner's states)
+		return;
+#endif
 	if (m_nCopType == COP_HELI_SWAT)
 		ProcessHeliSwat();
 

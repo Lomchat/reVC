@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Game.h"
 #include "General.h"
@@ -627,6 +628,10 @@ CPopulation::AddToPopulation(float minDist, float maxDist, float minDistOffScree
 
 		if (!foundCoors)
 			return;
+#ifdef ORTHROS_EXTRAS
+		if (!OrthrosMmo::MayGenerateAt(generatedCoors, addCop ? OrthrosMmo::GEN_LAW : pedTypeToAdd >= PEDTYPE_GANG1 && pedTypeToAdd <= PEDTYPE_GANG9 && !isSecurityGuard ? OrthrosMmo::GEN_GANG : OrthrosMmo::GEN_PED)) // (a shared world: the closest player populates)
+			return;
+#endif
 
 		uint8 nodeSpawnRate = Min(ThePaths.m_pathNodes[node1].spawnRate, ThePaths.m_pathNodes[node2].spawnRate);
 		int randomRate = CGeneral::GetRandomNumber() & 0xF;
@@ -1128,6 +1133,10 @@ CPopulation::ManagePopulation(void)
 
 			if (!pedIsFarAway)
 				continue;
+#ifdef ORTHROS_EXTRAS
+			if (OrthrosMmo::MigrateInsteadOfRemove(ped)) // (a shared world: a remote player near it takes it)
+				continue;
+#endif
 
 			if (ped->m_nPedState == PED_DEAD && !ped->bFadeOut) {
 				CVector pedPos = ped->GetPosition();

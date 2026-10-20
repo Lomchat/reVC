@@ -39,6 +39,7 @@ WEAK bool MigrateInsteadOfRemove(CEntity *) { return false; }
 WEAK void EntityDestroyed(CEntity *) {}
 WEAK bool PlayerMayEnter(CVehicle *) { return true; }
 WEAK bool MayGenerateParked(int32, const CVector &) { return true; }
+WEAK bool KeepForOthers(CEntity *) { return false; }
 // combat
 WEAK bool PedDamage(CPed *, CEntity *, int32, float, int32, uint8, bool *) { return false; }
 WEAK bool PedHitByCar(CPed *, CVehicle *, float) { return false; }

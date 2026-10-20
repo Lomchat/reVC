@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 #include "main.h"
 
 #include "General.h"
@@ -282,6 +283,10 @@ CAutomobile::ProcessControl(void)
 
 	if(CReplay::IsPlayingBack())
 		return;
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::PuppetVehicleControl(this)) // (a shared world's copy: moved by its owner's states)
+		return;
+#endif
 
 	// Heli wind
 	if(IsRealHeli())

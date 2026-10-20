@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "CivilianPed.h"
 #include "Phones.h"
@@ -226,6 +227,10 @@ CCivilianPed::CivilianAI(void)
 void
 CCivilianPed::ProcessControl(void)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::PuppetPedControl(this)) // (a shared world's copy: moved by its owner's states)
+		return;
+#endif
 	if (CharCreatedBy == UNK_CHAR)
 		return;
 
