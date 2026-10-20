@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Automobile.h"
 #include "Bridge.h"
@@ -383,6 +384,10 @@ CPlayerInfo::Process(void)
 					}
 				}
 				// carBelow is now closest vehicle
+#ifdef ORTHROS_EXTRAS
+				if (carBelow && !weAreOnBoat && !OrthrosMmo::PlayerMayEnter(carBelow)) // (a shared world: a remote player's car refused, another client's claimed)
+					carBelow = nil;
+#endif
 				if (carBelow && !weAreOnBoat) {
 					if (carBelow->GetStatus() == STATUS_TRAIN_NOT_MOVING) {
 						m_pPed->SetObjective(OBJECTIVE_ENTER_CAR_AS_PASSENGER, carBelow);

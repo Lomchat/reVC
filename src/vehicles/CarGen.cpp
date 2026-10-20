@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "CarGen.h"
 
@@ -158,9 +159,13 @@ void CCarGenerator::DoInternalProcessing()
 
 void CCarGenerator::Process()
 {
-	if (m_nVehicleHandle == -1 && 
+	if (m_nVehicleHandle == -1 &&
 		(CTheCarGenerators::GenerateEvenIfPlayerIsCloseCounter || CTimer::GetTimeInMilliseconds() >= m_nTimer) &&
-		m_nUsesRemaining != 0 && CheckIfWithinRangeOfAnyPlayers())
+		m_nUsesRemaining != 0 && CheckIfWithinRangeOfAnyPlayers()
+#ifdef ORTHROS_EXTRAS
+		&& OrthrosMmo::MayGenerateParked(this - CTheCarGenerators::CarGeneratorArray, m_vecPos) // (a shared world: its car not another client's, the closest player parks it)
+#endif
+		)
 		DoInternalProcessing();
 	if (m_nVehicleHandle == -1)
 		return;

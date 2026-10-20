@@ -372,6 +372,9 @@ CPed::CPed(uint32 pedType) : m_pedIK(this)
 
 CPed::~CPed(void)
 {
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::EntityDestroyed(this); // (a shared world's: told gone, or its copy's data freed)
+#endif
 #ifdef USE_CUTSCENE_SHADOW_FOR_PED
 	if ( m_pRTShadow ) delete m_pRTShadow;
 #endif
@@ -4498,6 +4501,10 @@ CPed::CanBeDeleted(void)
 {
 	if (bInVehicle)
 		return false;
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::IsPuppet(this)) // (a shared world's copy: deleted when its owner says so)
+		return false;
+#endif
 
 	switch (CharCreatedBy) {
 		case RANDOM_CHAR:
@@ -4514,6 +4521,10 @@ CPed::CanBeDeleted(void)
 bool
 CPed::CanBeDeletedEvenInVehicle(void)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::IsPuppet(this)) // (a shared world's copy: deleted when its owner says so)
+		return false;
+#endif
 	switch (CharCreatedBy) {
 		case RANDOM_CHAR:
 			return true;

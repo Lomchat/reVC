@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 #include "main.h"
 
 #include "General.h"
@@ -127,6 +128,10 @@ CHeli::ProcessControl(void)
 
 	if(gbModelViewer)
 		return;
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::PuppetVehicleControl(this)) // (a shared world's copy: moved by its owner's states)
+		return;
+#endif
 
 	CWindModifiers::RegisterOne(GetPosition(), 1);
 
