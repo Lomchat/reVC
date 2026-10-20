@@ -54,6 +54,9 @@ C_PcSave::DeleteSlot(int32 slot)
 int8
 C_PcSave::SaveSlot(int32 slot)
 {
+#ifdef ORTHROS_EXTRAS
+	OrthrosExtras::SaveMenuOpening(); // (a game saves in its own files: the free mode's, or the story's)
+#endif
 	MakeValidSaveName(slot);
 	PcSaveHelper.nErrorCode = SAVESTATUS_SUCCESSFUL;
 	_psGetUserFilesFolder();

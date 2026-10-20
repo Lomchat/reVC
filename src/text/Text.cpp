@@ -1,4 +1,5 @@
 #include "common.h"
+#include "orthros_extras.h"
 
 #include "FileMgr.h"
 #ifdef MORE_LANGUAGES
@@ -119,6 +120,10 @@ CText::Unload(void)
 wchar*
 CText::Get(const char *key)
 {
+#ifdef ORTHROS_EXTRAS
+	if (wchar *own = OrthrosExtras::Text(key))
+		return own;
+#endif
 	uint8 result = false;
 #if defined (FIX_BUGS) || defined(FIX_BUGS_64)
 	wchar *outstr = keyArray.Search(key, data.chars, &result);

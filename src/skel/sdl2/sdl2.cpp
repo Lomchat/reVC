@@ -13,7 +13,6 @@ long _dwOperatingSystemVersion;
 #include <unordered_map>
 
 #include "common.h"
-#include "orthros_extras.h"
 #include "rwcore.h"
 #include "skeleton.h"
 #include "platform.h"
@@ -1740,16 +1739,6 @@ main(int argc, char *argv[])
                     {
                         if(!WindowIconified)
                             RsEventHandler(rsFRONTENDIDLE, nil);
-#ifdef ORTHROS_EXTRAS
-                        {
-                            // (the free mode: its most recent save loaded as the menu's "load" does, once)
-                            static bool freeModeBooted = false;
-                            if (OrthrosExtras::bFreeMode && !freeModeBooted && FrontEndMenuManager.m_bMenuActive) {
-                                freeModeBooted = true;
-                                OrthrosExtras::FreeModeBoot();
-                            }
-                        }
-#endif
 
 #ifdef PS2_MENU
                         if ( !FrontEndMenuManager.m_bMenuActive || TheMemoryCard.m_bWantToLoad )

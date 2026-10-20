@@ -2,6 +2,7 @@
 #define WITHWINDOWS
 #define WITHDINPUT
 #include "common.h"
+#include "orthros_extras.h"
 #ifndef PS2_MENU
 #include "crossplatform.h"
 #include "platform.h"
@@ -462,6 +463,9 @@ CMenuManager::SwitchToNewScreen(int8 screen)
 	m_nMenuFadeAlpha = 0;
 	m_nOptionHighlightTransitionBlend = 0;
 	m_LastScreenSwitch = CTimer::GetTimeInMillisecondsPauseMode();
+#ifdef ORTHROS_EXTRAS
+	OrthrosExtras::ScreenChanged(m_nCurrScreen);
+#endif
 }
 
 CMenuManager::CMenuManager()
@@ -4773,6 +4777,9 @@ CMenuManager::ProcessUserInput(uint8 goDown, uint8 goUp, uint8 optionSelected, u
 				break;
 			}
 			case MENUACTION_NEWGAME:
+#ifdef ORTHROS_EXTRAS
+				OrthrosExtras::StartingNewGame();
+#endif
 				DoSettingsBeforeStartingAGame();
 				break;
 #ifdef LEGACY_MENU_OPTIONS
@@ -5465,7 +5472,11 @@ CMenuManager::ProcessFileActions()
 				doingMissionRetry = false;
 			}
 #endif
+#ifdef ORTHROS_EXTRAS
+			if (OrthrosExtras::CheckLoad(m_nCurrSaveSlot)) {
+#else
 			if (CheckSlotDataValid(m_nCurrSaveSlot)) {
+#endif
 #ifdef USE_DEBUG_SCRIPT_LOADER
 				CTheScripts::ScriptToLoad = 0;
 #endif
@@ -5669,6 +5680,9 @@ CMenuManager::SwitchMenuOnAndOff()
 		m_bActivateSaveMenu = false;
 		m_bMenuActive = true;
 		m_OnlySaveMenu = true;
+#ifdef ORTHROS_EXTRAS
+		OrthrosExtras::SaveMenuOpening();
+#endif
 
 		if (_InputMouseNeedsExclusive()) {
 			_InputShutdownMouse();

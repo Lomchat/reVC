@@ -13,26 +13,36 @@
 #include "GenericGameStorage.h"
 #include "PCSave.h"
 #include "frontendoption.h"
+#include "Streaming.h"
+
+const char *_psGetUserFilesFolder();
 
 namespace OrthrosExtras
 {
 bool bFreeMode;
 
+// ---------------------------------------------------------------- the free mode's saves
+// (the save files the game's lists and its saves use now: the free mode's when its page or its game asked for them)
+static bool freeSaves;
+
 bool
-CommandLine(const char *arg)
+UsingFreeSaves()
 {
-	if (strcmp(arg, "-freemode") != 0)
-		return false;
-	bFreeMode = true;
-	// (the menus' own additions were made before the command line was read: the free mode's one now)
-	FreeModeAddMenuEntries();
-	return true;
+	return freeSaves;
 }
 
 const char *
 SaveFilePrefix()
 {
-	return bFreeMode ? "GTAVCfree" : "GTAVCsf";
+	return freeSaves ? "GTAVCfree" : "GTAVCsf";
+}
+
+static void
+UseFreeSaves(bool on)
+{
+	freeSaves = on;
+	C_PcSave::SetSaveDirectory(_psGetUserFilesFolder());
+	PcSaveHelper.PopulateSlotInfo();
 }
 
 // ---------------------------------------------------------------- the game's text
@@ -75,6 +85,28 @@ static bool
 French()
 {
 	return FrontEndMenuManager.m_PrefsLanguage == CMenuManager::LANGUAGE_FRENCH;
+}
+
+// (the texts the game's own text files lack: keys "ORT_*", asked for as any of theirs — CText::Get)
+wchar *
+Text(const char *key)
+{
+	static const struct { const char *key, *en, *fr; } texts[] = {
+		{ "ORT_FRE", "Free Mode", "Mode libre" },
+		{ "ORT_CON", "Continue", "Continuer" },
+		{ "ORT_NEW", "New Free Game", "Nouvelle partie libre" },
+	};
+	static wchar buffers[ARRAY_SIZE(texts)][2][48];
+	if (strncmp(key, "ORT_", 4) != 0)
+		return nil;
+	const int lang = French() ? 1 : 0;
+	for (int i = 0; i < (int)ARRAY_SIZE(texts); i++)
+		if (strcmp(key, texts[i].key) == 0) {
+			if (buffers[i][lang][0] == 0)
+				GameText(lang ? texts[i].fr : texts[i].en, buffers[i][lang], ARRAY_SIZE(buffers[i][lang]));
+			return buffers[i][lang];
+		}
+	return nil;
 }
 
 // ---------------------------------------------------------------- the cheats, by kind
@@ -340,31 +372,12 @@ RenderCheatList()
 }
 
 // ---------------------------------------------------------------- the free mode
-// (the game completed at 100 %, among the game's files, copied to the free mode's first slot when it has no save)
-static const char *FREE_MODE_TEMPLATE = "orthros\\freemode.b";
-
-static bool
-CopyFreeModeTemplate()
-{
-	static uint8 buffer[256 * 1024];
-	CFileMgr::ChangeDir("\\");
-	int in = CFileMgr::OpenFile(FREE_MODE_TEMPLATE, "rb");
-	if (in == 0) {
-		debug("Orthros: no %s, the free mode starts on the main menu\n", FREE_MODE_TEMPLATE);
-		return false;
-	}
-	int size = CFileMgr::Read(in, (char *)buffer, sizeof(buffer));
-	CFileMgr::CloseFile(in);
-	if (size <= 0 || size >= (int)sizeof(buffer))
-		return false;
-	MakeValidSaveName(0);
-	int out = CFileMgr::OpenFile(ValidSaveName, "wb");
-	if (out == 0)
-		return false;
-	bool ok = CFileMgr::Write(out, (char *)buffer, size) == size;
-	CFileMgr::CloseFile(out);
-	return ok;
-}
+// A game of its own, chosen in the main menu ("Free Mode": its page, MENUPAGE_FREE_MODE): "Continue" starts it on the
+// most recent of its saves, "New Free Game" on a game completed at 100 % found among the game's files
+// (orthros/freemode.b, loaded as it is), "Load Game" and "Delete Game" are the game's own pages on its saves. Its games
+// save anywhere from the pause menu.
+static const char *FREE_MODE_START = "orthros\\freemode.b";
+static bool freeModeStart; // (the next load: that game, not a slot)
 
 // (when a slot's game was saved: its file's header, as PopulateSlotInfo reads it)
 static bool
@@ -400,9 +413,9 @@ Later(const SYSTEMTIME &a, const SYSTEMTIME &b)
 static int
 MostRecentSlot()
 {
-	PcSaveHelper.PopulateSlotInfo();
 	int best = -1;
 	SYSTEMTIME bestTime, time;
+	PcSaveHelper.PopulateSlotInfo();
 	for (int i = 0; i < SLOT_COUNT; i++)
 		if (Slots[i] == SLOT_OK && SlotSaveTime(i, &time) && (best < 0 || Later(time, bestTime))) {
 			best = i;
@@ -411,24 +424,35 @@ MostRecentSlot()
 	return best;
 }
 
-void
-FreeModeBoot()
+// (the game completed at 100 % ready to load, as CheckSlotDataValid readies a slot's: a PC save whose bytes before its
+// last four add up to them, its level in its first block)
+static bool
+FreeModeStartReady()
 {
-	int slot = MostRecentSlot();
-	if (slot < 0 && CopyFreeModeTemplate())
-		slot = MostRecentSlot();
-	if (slot < 0)
-		return;
-	// (as the menu's "load" does: its slot checked, then the game started on it)
-	FrontEndMenuManager.m_nCurrSaveSlot = slot;
-	if (CheckSlotDataValid(slot)) {
-		FrontEndMenuManager.DoSettingsBeforeStartingAGame();
-		FrontEndMenuManager.m_bWantToLoad = true;
+	static uint8 buffer[256 * 1024];
+	snprintf(LoadFileName, sizeof(LoadFileName), "%s%s", CFileMgr::GetRootDirName(), FREE_MODE_START);
+	int file = CFileMgr::OpenFile(LoadFileName, "rb");
+	if (file == 0) {
+		debug("Orthros: no %s, no new free game\n", FREE_MODE_START);
+		return false;
 	}
+	int size = CFileMgr::Read(file, (char *)buffer, sizeof(buffer));
+	CFileMgr::CloseFile(file);
+	if (size < 16 || size >= (int)sizeof(buffer))
+		return false;
+	uint32 sum = 0, stored;
+	for (int i = 0; i < size - 4; i++)
+		sum += buffer[i];
+	memcpy(&stored, buffer + size - 4, sizeof(stored));
+	if (sum != stored)
+		return false;
+	memcpy(&m_LevelToLoad, buffer + 8, sizeof(m_LevelToLoad));
+	CStreaming::DeleteAllRwObjects();
+	return true;
 }
 
-// (the pause menu's "Save Game": the save screen of a safe house, anywhere — not during a mission, whose script would
-// be saved half way)
+// (the pause menu's "Save Game", in a free game only: the save screen of a safe house, anywhere — not during a
+// mission, whose script would be saved half way)
 static wchar *
 FreeModeSaveDraw(bool *disabled, bool)
 {
@@ -445,13 +469,143 @@ FreeModeSavePress(int8 action)
 	FrontEndMenuManager.m_bActivateSaveMenu = true;
 }
 
-void
-FreeModeAddMenuEntries()
+static void
+SetPauseSaveEntry(bool on)
 {
-	if (!bFreeMode)
+	static CMenuScreenCustom::CMenuEntry entry;
+	static bool in;
+	if (on == in)
 		return;
-	FrontendOptionSetCursor(MENUPAGE_PAUSE_MENU, 1);
-	FrontendOptionAddDynamic("GMSAVE", 0, 0, MENUALIGN_CENTER, FreeModeSaveDraw, nil, FreeModeSavePress);
+	CMenuScreenCustom::CMenuEntry *entries = aScreens[MENUPAGE_PAUSE_MENU].m_aEntries;
+	int count = 0;
+	while (count < NUM_MENUROWS && entries[count].m_Action != MENUACTION_NOTHING)
+		count++;
+	if (on) {
+		if (count < 1 || count >= NUM_MENUROWS)
+			return;
+		if (entry.m_Action == MENUACTION_NOTHING) {
+			entry.m_Action = MENUACTION_CFO_DYNAMIC;
+			strncpy(entry.m_EntryName, "GMSAVE", sizeof(entry.m_EntryName));
+			entry.m_CFODynamic = new CCFODynamic(nil, nil, nil, FreeModeSaveDraw, FreeModeSavePress);
+			entry.m_Align = MENUALIGN_CENTER;
+		}
+		// (after "Resume")
+		memmove(&entries[2], &entries[1], (count - 1) * sizeof(entries[0]));
+		entries[1] = entry;
+	} else {
+		if (count < 2 || entries[1].m_Action != MENUACTION_CFO_DYNAMIC || strcmp(entries[1].m_EntryName, "GMSAVE") != 0)
+			return;
+		memmove(&entries[1], &entries[2], (count - 2) * sizeof(entries[0]));
+		memset(&entries[count - 1], 0, sizeof(entries[0]));
+	}
+	in = on;
+}
+
+// (a game starts: a free one or not)
+static void
+StartingGame(bool free)
+{
+	bFreeMode = free;
+	SetPauseSaveEntry(free);
+}
+
+void
+SaveMenuOpening()
+{
+	if (freeSaves != bFreeMode)
+		UseFreeSaves(bFreeMode);
+}
+
+void
+StartingNewGame()
+{
+	StartingGame(false);
+}
+
+bool
+CheckLoad(int32 slot)
+{
+	// (a mission's retry: the quick save its start made, in its game's files — the game goes on as it was)
+	if (slot >= SLOT_COUNT) {
+		SaveMenuOpening();
+		if (!CheckSlotDataValid(slot))
+			return false;
+		StartingGame(bFreeMode);
+		return true;
+	}
+	if (freeModeStart) {
+		freeModeStart = false;
+		if (!FreeModeStartReady())
+			return false;
+		StartingGame(true);
+		return true;
+	}
+	if (!CheckSlotDataValid(slot))
+		return false;
+	StartingGame(freeSaves);
+	return true;
+}
+
+// (the game's load and delete pages, theirs again once the player is back on the story's start page)
+static void
+ListsFor(bool free)
+{
+	const int page = free ? MENUPAGE_FREE_MODE : MENUPAGE_NEW_GAME;
+	aScreens[MENUPAGE_CHOOSE_LOAD_SLOT].m_PreviousPage = page;
+	aScreens[MENUPAGE_CHOOSE_DELETE_SLOT].m_PreviousPage = page;
+	aScreens[MENUPAGE_DELETE_SUCCESSFUL].m_PreviousPage = page;
+	aScreens[MENUPAGE_DELETE_SUCCESSFUL].m_aEntries[1].m_TargetMenu = page;
+	if (freeSaves != free)
+		UseFreeSaves(free);
+}
+
+void
+ScreenChanged(int screen)
+{
+	if (screen == MENUPAGE_NEW_GAME && freeSaves)
+		ListsFor(false);
+}
+
+void
+FreeModeContinuePress(int8 action)
+{
+	if (action != FEOPTION_ACTION_SELECT)
+		return;
+	ListsFor(true);
+	const int slot = MostRecentSlot();
+	if (slot < 0)
+		freeModeStart = true;
+	else
+		FrontEndMenuManager.m_nCurrSaveSlot = slot;
+	FrontEndMenuManager.SwitchToNewScreen(MENUPAGE_LOADING_IN_PROGRESS);
+}
+
+void
+FreeModeNewPress(int8 action)
+{
+	if (action != FEOPTION_ACTION_SELECT)
+		return;
+	ListsFor(true);
+	freeModeStart = true;
+	FrontEndMenuManager.SwitchToNewScreen(MENUPAGE_LOADING_IN_PROGRESS);
+}
+
+void
+FreeModeLoadPress(int8 action)
+{
+	if (action != FEOPTION_ACTION_SELECT)
+		return;
+	ListsFor(true);
+	FrontEndMenuManager.SwitchToNewScreen(MENUPAGE_CHOOSE_LOAD_SLOT);
+}
+
+void
+FreeModeDeletePress(int8 action)
+{
+	if (action != FEOPTION_ACTION_SELECT)
+		return;
+	ListsFor(true);
+	FrontEndMenuManager.SwitchToNewScreen(MENUPAGE_CHOOSE_DELETE_SLOT);
 }
 }
 #endif

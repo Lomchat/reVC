@@ -235,6 +235,9 @@ enum eMenuScreen
 	MENUPAGE_MISSION_RETRY,
 #endif
 
+#ifdef ORTHROS_EXTRAS
+	MENUPAGE_FREE_MODE, // Orthros' free mode (src/extras/orthros_extras.h)
+#endif
 	MENUPAGE_OUTRO, // Originally 34, but CFO needs last screen to be empty to count number of menu pages
 	MENUPAGES
 };

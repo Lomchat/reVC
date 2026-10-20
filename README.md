@@ -55,10 +55,11 @@ What differs from the desktop build, all under `__EMSCRIPTEN__`:
 `ORTHROS_EXTRAS`; without it nothing changes):
 - **The HELP cheat**: the cheats by kind, sorted, in the game's own fonts and colours, over the paused game (English
   or French as the game); HELP, Enter, Backspace or Esc close it.
-- **The free mode** (`-freemode` on the command line): its own save files (`GTAVCfree<n>.b`), started from the most
-  recent of them, the first time from a game completed at 100 % found among the game's files (`orthros/freemode.b`,
-  copied to the first slot); "Save Game" in the pause menu, anywhere but during a mission, without the six hours a
-  safe house's save lets pass.
+- **The free mode**, a game of its own in the main menu ("Free Mode", between "Start Game" and "Options"): its page
+  has "Continue" (its most recent save), "New Free Game" (a game completed at 100 % found among the game's files,
+  `orthros/freemode.b`, loaded as it is), and the game's own "Load Game" and "Delete Game" pages on its saves, files
+  of their own (`GTAVCfree<n>.b`; the story's stay `GTAVCsf<n>.b`). In a free game the pause menu has "Save Game":
+  a safe house's save screen anywhere but during a mission, without the six hours such a save lets pass.
 
 ## Screenshots
 

@@ -1,4 +1,5 @@
 #include "common.h"
+#include "orthros_extras.h"
 #if defined DETECT_JOYSTICK_MENU && defined XINPUT
 #include <windows.h>
 #include <xinput.h>
@@ -663,6 +664,9 @@ CMenuScreenCustom aScreens[] = {
 	// MENUPAGE_START_MENU = 29
 	{ "FEM_MM", MENUPAGE_DISABLED, nil, nil,
 		  MENUACTION_CHANGEMENU,	"FEP_STG",	{nil, SAVESLOT_NONE,	MENUPAGE_NEW_GAME}, 320, 170, MENUALIGN_CENTER,
+#ifdef ORTHROS_EXTRAS
+		  MENUACTION_CHANGEMENU,	"ORT_FRE",	{nil, SAVESLOT_NONE,	MENUPAGE_FREE_MODE}, 0, 0, MENUALIGN_CENTER,
+#endif
 		  MENUACTION_CHANGEMENU,	"FEP_OPT",	{nil, SAVESLOT_NONE,	MENUPAGE_OPTIONS}, 0, 0, MENUALIGN_CENTER,
 		  MENUACTION_CHANGEMENU,	"FEP_QUI",	{nil, SAVESLOT_NONE,	MENUPAGE_EXIT}, 0, 0, MENUALIGN_CENTER,
    },
@@ -808,6 +812,17 @@ CMenuScreenCustom aScreens[] = {
 		MENUACTION_LABEL,			"FESZ_RM",  { nil, SAVESLOT_NONE, MENUPAGE_NONE }, 0, 0, 0,
 		MENUACTION_CHANGEMENU,		"FEM_YES",  { nil, SAVESLOT_NONE, MENUPAGE_LOADING_IN_PROGRESS }, 320, 200, MENUALIGN_CENTER,
 		MENUACTION_REJECT_RETRY,	"FEM_NO",   { nil, SAVESLOT_NONE, MENUPAGE_NONE }, 320, 225, MENUALIGN_CENTER,
+	},
+#endif
+
+#ifdef ORTHROS_EXTRAS
+	// MENUPAGE_FREE_MODE: Orthros' free mode, as the start page is the story's
+	{ "ORT_FRE", MENUPAGE_START_MENU, nil, nil,
+		MENUACTION_CFO_DYNAMIC,	"ORT_CON",	{ new CCFODynamic(nil, nil, nil, nil, OrthrosExtras::FreeModeContinuePress) }, 320, 155, MENUALIGN_CENTER,
+		MENUACTION_CFO_DYNAMIC,	"ORT_NEW",	{ new CCFODynamic(nil, nil, nil, nil, OrthrosExtras::FreeModeNewPress) }, 0, 0, MENUALIGN_CENTER,
+		MENUACTION_CFO_DYNAMIC,	"FES_LOA",	{ new CCFODynamic(nil, nil, nil, nil, OrthrosExtras::FreeModeLoadPress) }, 0, 0, MENUALIGN_CENTER,
+		MENUACTION_CFO_DYNAMIC,	"FES_DEL",	{ new CCFODynamic(nil, nil, nil, nil, OrthrosExtras::FreeModeDeletePress) }, 0, 0, MENUALIGN_CENTER,
+		MENUACTION_GOBACK,		"FEDS_TB",	{nil, SAVESLOT_NONE, 0}, 0, 0, MENUALIGN_CENTER,
 	},
 #endif
 
