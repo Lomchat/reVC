@@ -14,6 +14,7 @@
 #include "PCSave.h"
 #include "frontendoption.h"
 #include "Streaming.h"
+#include "skeleton.h"
 #include "mmo_internal.h"
 
 const char *_psGetUserFilesFolder();
@@ -203,6 +204,7 @@ static const Cheat other[] = {
 	{ "HELP", "This list", "Cette liste" },
 	{ "KANGAROO", "Super jump", "Super saut" },
 };
+// (in the order of the kinds, CHEAT_*)
 static const CheatGroup groups[] = {
 	{ "Weapons and health", "Armes et santé", weapons, ARRAY_SIZE(weapons) },
 	{ "Police", "Police", police, ARRAY_SIZE(police) },
@@ -214,13 +216,90 @@ static const CheatGroup groups[] = {
 	{ "Other", "Divers", other, ARRAY_SIZE(other) },
 };
 
-// ---------------------------------------------------------------- the list over the paused game
-static bool listOpen;
-// (the mouse over the list — free while it is open — and each code's place as last drawn, for a click)
+int
+NumCheats()
+{
+	int n = 0;
+	for (int g = 0; g < (int)ARRAY_SIZE(groups); g++)
+		n += groups[g].count;
+	return n;
+}
+
+static const Cheat *
+CheatAt(int i, int *kind)
+{
+	for (int g = 0; g < (int)ARRAY_SIZE(groups) && i >= 0; g++) {
+		if (i < groups[g].count) {
+			*kind = g;
+			return &groups[g].cheats[i];
+		}
+		i -= groups[g].count;
+	}
+	return nil;
+}
+
+const char *
+CheatCode(int i)
+{
+	int kind;
+	const Cheat *cheat = CheatAt(i, &kind);
+	return cheat ? cheat->code : nil;
+}
+
+int
+CheatKind(int i)
+{
+	int kind = -1;
+	CheatAt(i, &kind);
+	return kind;
+}
+
+// (HELP's list: the cheats by kind; a code chosen is as if typed — its letters given to the cheats' reader one by one,
+// the keyboard's way, once the list has closed; HELP itself only closes the list)
+static int
+CheatGroupHeading(int group, wchar *heading, int size)
+{
+	GameText(French() ? groups[group].fr : groups[group].en, heading, size);
+	return groups[group].count;
+}
+
+static void
+CheatRow(int group, int row, wchar *name, wchar *desc, int size)
+{
+	const Cheat &cheat = groups[group].cheats[row];
+	GameText(cheat.code, name, size);
+	GameText(French() ? cheat.fr : cheat.en, desc, size);
+}
+
+static void
+CheatChosen(int group, int row)
+{
+	const char *code = groups[group].cheats[row].code;
+	if (strcmp(code, "HELP") != 0)
+		for (const char *c = code; *c; c++)
+			CPad::GetPad(0)->AddToPCCheatString(*c);
+}
+
+static const List cheatList = {
+	{ "CHEATS", "CHEATS" },
+	{ "Click a code, or type it while playing  -  HELP, Enter or Esc: close",
+	  "Cliquez sur un code, ou tapez-le en jouant  -  HELP, Entrée ou Echap : fermer" },
+	ARRAY_SIZE(groups), false, 1.0f, 0.0f, CheatGroupHeading, CheatRow, CheatChosen,
+};
+
+// ---------------------------------------------------------------- lists over the game
+// One open at a time: HELP's, or another (the shared world's teleport list). The game pauses under it, except where
+// the shared world says not (OrthrosMmo::ListsPause): the player's controls are then off while it is open.
+static const List *openList;
+static bool listPaused; // (it paused the game: the pause ends when it closes)
+// (the mouse over the list — free while it is open —, each row's place as last drawn, for a click; the row the arrows
+// chose — a row's index counts the groups' rows in order —, the mouse's again once it moves)
 static float mouseX = -1.0f, mouseY = -1.0f;
-static struct { float left, top, right, bottom; const Cheat *cheat; } places[80];
+static struct { float left, top, right, bottom; } places[80];
 static int numPlaces;
-static bool swallowLeft; // (the click that chose a code, not the game's until released)
+static int selected;
+static bool hovering;
+static bool swallowLeft; // (the click that chose a row, not the game's until released)
 
 bool
 SwallowLeftButton(bool down)
@@ -228,6 +307,130 @@ SwallowLeftButton(bool down)
 	if (!down)
 		swallowLeft = false;
 	return swallowLeft;
+}
+
+static int
+NumRows(const List *list)
+{
+	wchar heading[64];
+	int n = 0;
+	for (int g = 0; g < list->numGroups; g++)
+		n += list->group(g, heading, ARRAY_SIZE(heading));
+	return n;
+}
+
+void
+OpenList(const List *list)
+{
+	if (FrontEndMenuManager.m_bMenuActive)
+		return;
+	CloseList();
+	openList = list;
+	selected = 0;
+	hovering = false;
+	numPlaces = 0;
+	listPaused = OrthrosMmo::ListsPause();
+	if (listPaused)
+		CTimer::StartUserPause();
+	else
+		CPad::GetPad(0)->SetDisablePlayerControls(PLAYERCONTROL_ORTHROS_LIST);
+}
+
+void
+CloseList()
+{
+	if (openList == nil)
+		return;
+	openList = nil;
+	if (listPaused)
+		CTimer::EndUserPause();
+	else
+		CPad::GetPad(0)->SetEnablePlayerControls(PLAYERCONTROL_ORTHROS_LIST);
+	listPaused = false;
+}
+
+bool
+IsListOpen(const List *list)
+{
+	return openList != nil && openList == list;
+}
+
+// (a row chosen: the list closed first — the game going on again —, then the row's action)
+static void
+ChooseRow(int index)
+{
+	const List *list = openList;
+	wchar heading[64];
+	CloseList();
+	for (int g = 0; g < list->numGroups; g++) {
+		const int rows = list->group(g, heading, ARRAY_SIZE(heading));
+		if (index < rows) {
+			list->chosen(g, index);
+			return;
+		}
+		index -= rows;
+	}
+}
+
+// (the arrows left and right: the row beside the chosen one in the next column, from the places last drawn)
+static void
+SelectBeside(int direction)
+{
+	if (selected >= numPlaces)
+		return;
+	const float x = places[selected].left, y = (places[selected].top + places[selected].bottom) / 2.0f;
+	int best = -1;
+	float bestX = 0.0f, bestY = 0.0f;
+	for (int i = 0; i < numPlaces; i++) {
+		const float dx = (places[i].left - x) * direction, dy = Abs((places[i].top + places[i].bottom) / 2.0f - y);
+		if (dx < 1.0f)
+			continue;
+		if (best < 0 || dx < bestX - 1.0f || (dx < bestX + 1.0f && dy < bestY)) {
+			best = i;
+			bestX = dx;
+			bestY = dy;
+		}
+	}
+	if (best >= 0)
+		selected = best;
+}
+
+bool
+ListKeyDown(int32 key)
+{
+	if (openList == nil)
+		return false;
+	// (HELP's: closed at Esc, Enter or Backspace; every other key the game's)
+	if (!openList->keys) {
+		if (key != rsESC && key != rsENTER && key != rsPADENTER && key != rsBACKSP)
+			return false;
+		CloseList();
+		return true;
+	}
+	const int rows = NumRows(openList);
+	switch (key) {
+	case rsUP:
+	case rsDOWN:
+		if (rows > 0)
+			selected = (selected + (key == rsUP ? rows - 1 : 1)) % rows;
+		hovering = false;
+		break;
+	case rsLEFT:
+	case rsRIGHT:
+		SelectBeside(key == rsLEFT ? -1 : 1);
+		hovering = false;
+		break;
+	case rsENTER:
+	case rsPADENTER:
+		if (selected < rows)
+			ChooseRow(selected);
+		break;
+	case rsESC:
+	case rsBACKSP:
+		CloseList();
+		break;
+	}
+	return true;
 }
 
 void
@@ -239,28 +442,25 @@ SwallowLeftClick()
 void
 CheatListMouse(float x, float y)
 {
+	if (x != mouseX || y != mouseY)
+		hovering = true;
 	mouseX = x;
 	mouseY = y;
 }
 
-// (a code clicked: as if typed — the list closed, the game going on again, then its letters given to the cheats'
-// reader one by one, the keyboard's way; HELP itself only closes the list)
+// (a row clicked: chosen)
 bool
 CheatListClick(float x, float y)
 {
-	if (!listOpen)
+	if (openList == nil)
 		return false;
 	mouseX = x;
 	mouseY = y;
 	for (int i = 0; i < numPlaces; i++) {
 		if (x < places[i].left || x > places[i].right || y < places[i].top || y > places[i].bottom)
 			continue;
-		const char *code = places[i].cheat->code;
 		swallowLeft = true;
-		ToggleCheatList();
-		if (strcmp(code, "HELP") != 0)
-			for (const char *c = code; *c; c++)
-				CPad::GetPad(0)->AddToPCCheatString(*c);
+		ChooseRow(i);
 		return true;
 	}
 	return true;
@@ -269,7 +469,7 @@ CheatListClick(float x, float y)
 bool
 IsCheatListOpen()
 {
-	return listOpen;
+	return openList != nil;
 }
 
 void
@@ -277,47 +477,47 @@ ToggleCheatList()
 {
 	if (FrontEndMenuManager.m_bMenuActive)
 		return;
-	listOpen = !listOpen;
-	if (listOpen)
-		CTimer::StartUserPause();
+	if (openList == &cheatList)
+		CloseList();
 	else
-		CTimer::EndUserPause();
+		OpenList(&cheatList);
 }
 
 void
 ProcessCheatList()
 {
-	if (!listOpen)
+	if (openList == nil)
 		return;
+	// (controls off again: a respawn gives every one of them back)
+	if (!listPaused)
+		CPad::GetPad(0)->SetDisablePlayerControls(PLAYERCONTROL_ORTHROS_LIST);
 	CPad *pad = CPad::GetPad(0);
 	if (pad->GetEscapeJustDown() || pad->GetEnterJustDown() || pad->GetBackspaceJustDown()) {
 		// (the key is the list's: the frontend does not open its pause menu on that Esc)
 		CPad::OldKeyState.ESC = CPad::NewKeyState.ESC;
-		ToggleCheatList();
+		if (openList->keys && pad->GetEnterJustDown() && selected < NumRows(openList))
+			ChooseRow(selected);
+		else
+			CloseList();
 	}
 }
 
-// (sizes in the game's 640 × 448 screen units, as its menus' and HUD's: SCREEN_SCALE_X/Y)
+// (sizes in the game's 640 × 448 screen units, as its menus' and HUD's: SCREEN_SCALE_X/Y; a list's own scale
+// multiplies them)
 static const float HEAD_SCALE_X = 0.62f, HEAD_SCALE_Y = 1.1f, CODE_SCALE_X = 0.36f, CODE_SCALE_Y = 0.72f, DESC_SCALE_X = 0.32f, DESC_SCALE_Y = 0.66f;
 static const float HEAD_ROW = 21.0f, CHEAT_ROW = 13.5f, GROUP_GAP = 7.0f, TOP = 64.0f, BOTTOM = 30.0f;
-
-static float
-GroupHeight(const CheatGroup &g)
-{
-	return HEAD_ROW + g.count * CHEAT_ROW;
-}
 
 void
 RenderCheatList()
 {
-	if (!listOpen)
+	if (openList == nil)
 		return;
 	if (FrontEndMenuManager.m_bMenuActive) { // (the pause menu opened over it: the list goes)
-		listOpen = false;
-		CTimer::EndUserPause();
+		CloseList();
 		return;
 	}
-	const bool fr = French();
+	const List &list = *openList;
+	const int lang = French() ? 1 : 0;
 	wchar text[128];
 	const CRGBA pink(255, 150, 225, 255), cyan(97, 194, 247, 255), white(255, 255, 255, 255), grey(185, 185, 185, 255), black(0, 0, 0, 255);
 	numPlaces = 0;
@@ -331,7 +531,7 @@ RenderCheatList()
 	CFont::SetRightJustifyWrap(0.0f);
 
 	// (the title as the menus' pages have theirs: top right, the heading font, its shadow behind)
-	GameText("CHEATS", text, ARRAY_SIZE(text));
+	GameText(list.title[lang], text, ARRAY_SIZE(text));
 	CFont::SetRightJustifyOn();
 	CFont::SetFontStyle(FONT_LOCALE(FONT_HEADING));
 	CFont::SetScale(SCREEN_SCALE_X(1.0f), SCREEN_SCALE_Y(2.0f));
@@ -343,35 +543,48 @@ RenderCheatList()
 	CFont::SetRightJustifyOff();
 
 	// (the groups in columns, in order, the tallest column as short as can be; everything scaled down to fit)
-	const int numGroups = ARRAY_SIZE(groups);
-	const int columns = SCREEN_WIDTH >= SCREEN_HEIGHT * 1.45f ? 3 : 2;
+	const int numGroups = Min(list.numGroups, 16);
+	int groupRows[16];
+	float groupHeight[16], total = 0.0f;
+	for (int i = 0; i < numGroups; i++) {
+		groupRows[i] = list.group(i, text, ARRAY_SIZE(text));
+		groupHeight[i] = (HEAD_ROW + groupRows[i] * CHEAT_ROW) * list.scale;
+		total += groupHeight[i] + (i > 0 ? GROUP_GAP * list.scale : 0.0f);
+	}
+	const int columns = Max(1, Min(numGroups, SCREEN_WIDTH >= SCREEN_HEIGHT * 1.45f ? 3 : 2));
 	int split[2] = { numGroups, numGroups };
-	float best = 1e9f;
-	for (int a = 1; a < numGroups; a++)
-		for (int b = columns == 3 ? a + 1 : numGroups; b <= numGroups; b++) {
-			if (columns == 3 && b >= numGroups) continue;
-			float h[3] = { 0.0f, 0.0f, 0.0f };
-			for (int i = 0; i < numGroups; i++) {
-				int c = i < a ? 0 : i < b ? 1 : 2;
-				h[c] += GroupHeight(groups[i]) + (h[c] > 0.0f ? GROUP_GAP : 0.0f);
+	float best = total;
+	if (columns > 1) {
+		best = 1e9f;
+		for (int a = 1; a < numGroups; a++)
+			for (int b = columns == 3 ? a + 1 : numGroups; b <= numGroups; b++) {
+				if (columns == 3 && b >= numGroups) continue;
+				float h[3] = { 0.0f, 0.0f, 0.0f };
+				for (int i = 0; i < numGroups; i++) {
+					int c = i < a ? 0 : i < b ? 1 : 2;
+					h[c] += groupHeight[i] + (h[c] > 0.0f ? GROUP_GAP * list.scale : 0.0f);
+				}
+				float tallest = Max(h[0], Max(h[1], h[2]));
+				if (tallest < best) { best = tallest; split[0] = a; split[1] = b; }
 			}
-			float tallest = Max(h[0], Max(h[1], h[2]));
-			if (tallest < best) { best = tallest; split[0] = a; split[1] = b; }
-		}
+	}
 	const float available = DEFAULT_SCREEN_HEIGHT - TOP - BOTTOM;
-	const float f = best > available ? available / best : 1.0f;
+	const float f = (best > available ? available / best : 1.0f) * list.scale;
 
+	// (the columns as wide as the screen allows — or the list's widest —, the whole centred)
 	const float margin = SCREEN_STRETCH_X(28.0f), gutter = SCREEN_STRETCH_X(18.0f);
-	const float columnWidth = (SCREEN_WIDTH - 2.0f * margin - (columns - 1) * gutter) / columns;
+	float columnWidth = (SCREEN_WIDTH - 2.0f * margin - (columns - 1) * gutter) / columns;
+	if (list.maxColumnWidth > 0.0f)
+		columnWidth = Min(columnWidth, SCREEN_SCALE_X(list.maxColumnWidth));
+	const float start = (SCREEN_WIDTH - columns * columnWidth - (columns - 1) * gutter) / 2.0f;
 	CFont::SetDropShadowPosition(1);
 	CFont::SetDropColor(black);
 	for (int c = 0; c < columns; c++) {
-		const float left = margin + c * (columnWidth + gutter), right = left + columnWidth;
+		const float left = start + c * (columnWidth + gutter), right = left + columnWidth;
 		float y = TOP;
 		const int from = c == 0 ? 0 : split[c - 1], to = c == columns - 1 ? numGroups : split[c];
 		for (int i = from; i < to; i++) {
-			const CheatGroup &g = groups[i];
-			GameText(fr ? g.fr : g.en, text, ARRAY_SIZE(text));
+			list.group(i, text, ARRAY_SIZE(text));
 			CFont::SetFontStyle(FONT_LOCALE(FONT_HEADING));
 			CFont::SetScale(SCREEN_SCALE_X(HEAD_SCALE_X * f), SCREEN_SCALE_Y(HEAD_SCALE_Y * f));
 			// (a title wider than its column narrowed to it)
@@ -382,20 +595,18 @@ RenderCheatList()
 			CFont::PrintString(left, SCREEN_SCALE_Y(y), text);
 			CSprite2d::DrawRect(CRect(left, SCREEN_SCALE_Y(y + HEAD_ROW * f - 3.0f * f), right, SCREEN_SCALE_Y(y + HEAD_ROW * f - 3.0f * f) + Max(1.0f, SCREEN_SCALE_Y(1.0f))), CRGBA(97, 194, 247, 110));
 			y += HEAD_ROW * f;
-			for (int k = 0; k < g.count; k++) {
-				const Cheat &cheat = g.cheats[k];
+			for (int k = 0; k < groupRows[i]; k++) {
 				const float rowY = SCREEN_SCALE_Y(y), space = SCREEN_STRETCH_X(8.0f);
 				wchar desc[128];
-				GameText(fr ? cheat.fr : cheat.en, desc, ARRAY_SIZE(desc));
+				list.row(i, k, text, desc, ARRAY_SIZE(desc));
 				const float descX = SCREEN_SCALE_X(DESC_SCALE_X * f), descY = SCREEN_SCALE_Y(DESC_SCALE_Y * f);
 				CFont::SetFontStyle(FONT_LOCALE(FONT_STANDARD));
 				CFont::SetScale(descX, descY);
 				const float descWidth = CFont::GetStringWidth(desc, true);
-				// (a code and its description on one line: the description narrower if they would meet — down to 70 % —,
-				// then the code too, down to 80 %)
+				// (a name and its description on one line: the description narrower if they would meet — down to 70 % —,
+				// then the name too, down to 80 %)
 				float codeX = SCREEN_SCALE_X(CODE_SCALE_X * f);
 				const float codeY = SCREEN_SCALE_Y(CODE_SCALE_Y * f);
-				GameText(cheat.code, text, ARRAY_SIZE(text));
 				CFont::SetScale(codeX, codeY);
 				float codeWidth = CFont::GetStringWidth(text, true);
 				float squeeze = Min(1.0f, (columnWidth - codeWidth - space) / descWidth);
@@ -405,15 +616,18 @@ RenderCheatList()
 					codeWidth = CFont::GetStringWidth(text, true);
 					squeeze = Max(0.5f, Min(1.0f, (columnWidth - codeWidth - space) / descWidth));
 				}
-				// (its place, for a click; under the mouse, the menus' selection behind it)
+				// (its place, for a click; under the mouse — or chosen with the arrows —, the menus' selection behind it)
 				const float pad = SCREEN_STRETCH_X(4.0f), top = rowY - SCREEN_SCALE_Y(1.0f), bottom = rowY + SCREEN_SCALE_Y(CHEAT_ROW * f) - SCREEN_SCALE_Y(1.0f);
+				const int index = numPlaces;
 				if (numPlaces < (int)ARRAY_SIZE(places)) {
 					places[numPlaces].left = left - pad; places[numPlaces].right = right + pad;
 					places[numPlaces].top = top; places[numPlaces].bottom = bottom;
-					places[numPlaces].cheat = &cheat;
 					numPlaces++;
 				}
-				if (mouseX >= left - pad && mouseX <= right + pad && mouseY >= top && mouseY <= bottom)
+				const bool under = mouseX >= left - pad && mouseX <= right + pad && mouseY >= top && mouseY <= bottom;
+				if (list.keys && under && hovering)
+					selected = index;
+				if (list.keys ? index == selected : under)
 					CSprite2d::DrawRect(CRect(left - pad, top, right + pad, bottom), CRGBA(25, 130, 70, 255));
 				CFont::SetColor(white);
 				CFont::PrintString(left, rowY, text);
@@ -431,8 +645,7 @@ RenderCheatList()
 	}
 
 	// (how to use it, at the bottom)
-	GameText(fr ? "Cliquez sur un code, ou tapez-le en jouant  -  HELP, Entrée ou Echap : fermer"
-	            : "Click a code, or type it while playing  -  HELP, Enter or Esc: close", text, ARRAY_SIZE(text));
+	GameText(list.footer[lang], text, ARRAY_SIZE(text));
 	CFont::SetFontStyle(FONT_LOCALE(FONT_STANDARD));
 	CFont::SetScale(SCREEN_SCALE_X(0.34f), SCREEN_SCALE_Y(0.7f));
 	CFont::SetCentreOn();

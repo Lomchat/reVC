@@ -1314,6 +1314,12 @@ void CPad::AddToPCCheatString(char c)
 
 	KeyBoardCheatString[0] = c;
 
+#ifdef ORTHROS_EXTRAS
+	// (a shared world: "teleport", the cheats its administrators' only)
+	if (OrthrosMmo::CheatString(KeyBoardCheatString))
+		return;
+#endif
+
 #define _CHEATCMP(str) strncmp(str, KeyBoardCheatString, sizeof(str)-1)
 
 	// "THUGSTOOLS"
@@ -2126,6 +2132,10 @@ void CPad::Update(int16 pad)
 
 void CPad::DoCheats(void)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::PadCheatsBlocked()) // (a shared world: the gamepad's combos off, cheats through the keyboard's gate)
+		return;
+#endif
 #ifdef DETECT_PAD_INPUT_SWITCH
 	if (IsAffectedByController)
 #endif
