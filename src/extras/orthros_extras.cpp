@@ -204,6 +204,49 @@ static const CheatGroup groups[] = {
 
 // ---------------------------------------------------------------- the list over the paused game
 static bool listOpen;
+// (the mouse over the list — free while it is open — and each code's place as last drawn, for a click)
+static float mouseX = -1.0f, mouseY = -1.0f;
+static struct { float left, top, right, bottom; const Cheat *cheat; } places[80];
+static int numPlaces;
+static bool swallowLeft; // (the click that chose a code, not the game's until released)
+
+bool
+SwallowLeftButton(bool down)
+{
+	if (!down)
+		swallowLeft = false;
+	return swallowLeft;
+}
+
+void
+CheatListMouse(float x, float y)
+{
+	mouseX = x;
+	mouseY = y;
+}
+
+// (a code clicked: as if typed — the list closed, the game going on again, then its letters given to the cheats'
+// reader one by one, the keyboard's way; HELP itself only closes the list)
+bool
+CheatListClick(float x, float y)
+{
+	if (!listOpen)
+		return false;
+	mouseX = x;
+	mouseY = y;
+	for (int i = 0; i < numPlaces; i++) {
+		if (x < places[i].left || x > places[i].right || y < places[i].top || y > places[i].bottom)
+			continue;
+		const char *code = places[i].cheat->code;
+		swallowLeft = true;
+		ToggleCheatList();
+		if (strcmp(code, "HELP") != 0)
+			for (const char *c = code; *c; c++)
+				CPad::GetPad(0)->AddToPCCheatString(*c);
+		return true;
+	}
+	return true;
+}
 
 bool
 IsCheatListOpen()
@@ -259,6 +302,7 @@ RenderCheatList()
 	const bool fr = French();
 	wchar text[128];
 	const CRGBA pink(255, 150, 225, 255), cyan(97, 194, 247, 255), white(255, 255, 255, 255), grey(185, 185, 185, 255), black(0, 0, 0, 255);
+	numPlaces = 0;
 
 	CSprite2d::DrawRect(CRect(0.0f, 0.0f, SCREEN_WIDTH, SCREEN_HEIGHT), CRGBA(0, 0, 0, 205));
 	CFont::SetBackgroundOff();
@@ -343,6 +387,16 @@ RenderCheatList()
 					codeWidth = CFont::GetStringWidth(text, true);
 					squeeze = Max(0.5f, Min(1.0f, (columnWidth - codeWidth - space) / descWidth));
 				}
+				// (its place, for a click; under the mouse, the menus' selection behind it)
+				const float pad = SCREEN_STRETCH_X(4.0f), top = rowY - SCREEN_SCALE_Y(1.0f), bottom = rowY + SCREEN_SCALE_Y(CHEAT_ROW * f) - SCREEN_SCALE_Y(1.0f);
+				if (numPlaces < (int)ARRAY_SIZE(places)) {
+					places[numPlaces].left = left - pad; places[numPlaces].right = right + pad;
+					places[numPlaces].top = top; places[numPlaces].bottom = bottom;
+					places[numPlaces].cheat = &cheat;
+					numPlaces++;
+				}
+				if (mouseX >= left - pad && mouseX <= right + pad && mouseY >= top && mouseY <= bottom)
+					CSprite2d::DrawRect(CRect(left - pad, top, right + pad, bottom), CRGBA(25, 130, 70, 255));
 				CFont::SetColor(white);
 				CFont::PrintString(left, rowY, text);
 				// (its description right-aligned)
@@ -359,8 +413,8 @@ RenderCheatList()
 	}
 
 	// (how to use it, at the bottom)
-	GameText(fr ? "Tapez un code en jouant pour l'activer  -  HELP, Entrée ou Echap : fermer"
-	            : "Type a code while playing to use it  -  HELP, Enter or Esc: close", text, ARRAY_SIZE(text));
+	GameText(fr ? "Cliquez sur un code, ou tapez-le en jouant  -  HELP, Entrée ou Echap : fermer"
+	            : "Click a code, or type it while playing  -  HELP, Enter or Esc: close", text, ARRAY_SIZE(text));
 	CFont::SetFontStyle(FONT_LOCALE(FONT_STANDARD));
 	CFont::SetScale(SCREEN_SCALE_X(0.34f), SCREEN_SCALE_Y(0.7f));
 	CFont::SetCentreOn();
@@ -499,6 +553,19 @@ SetPauseSaveEntry(bool on)
 		memset(&entries[count - 1], 0, sizeof(entries[0]));
 	}
 	in = on;
+}
+
+// (the free mode's game completed at 100 %: the phone calls its player never answered, made — else the phone rings for
+// them again and again, conversations of the story and nothing more. main.scm's variables — the PC script whose main
+// part is 204,596 bytes: its CELL thread marks each call made once its conversation has been heard)
+void
+GameLoaded()
+{
+	static const int callsMade[] = { 1139, 1140, 1158, 1162, 1164 }; // (MOB_17A, MOB_18A, MOB_63A, MOB_71A, MOB_73A)
+	if (!bFreeMode || CTheScripts::MainScriptSize != 204596)
+		return;
+	for (int i = 0; i < (int)ARRAY_SIZE(callsMade); i++)
+		*(int32 *)&CTheScripts::ScriptSpace[callsMade[i] * 4] = 1;
 }
 
 // (a game starts: a free one or not)

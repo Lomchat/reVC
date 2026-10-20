@@ -809,6 +809,9 @@ void CGame::InitialiseWhenRestarting(void)
 		InitRadioStationPositionList();
 		if ( GenericLoad() == true )
 		{
+#ifdef ORTHROS_EXTRAS
+			OrthrosExtras::GameLoaded();
+#endif
 			DMAudio.ResetTimers(CTimer::GetTimeInMilliseconds());
 			CTrain::InitTrains();
 			CPlane::InitPlanes();

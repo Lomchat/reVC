@@ -13,6 +13,7 @@ long _dwOperatingSystemVersion;
 #include <unordered_map>
 
 #include "common.h"
+#include "orthros_extras.h"
 #include "rwcore.h"
 #include "skeleton.h"
 #include "platform.h"
@@ -1300,6 +1301,9 @@ _InputTranslateShiftKeyUpDown(RsKeyCodes *rs) {
 
 void
 cursorCB(double xpos, double ypos) {
+#ifdef ORTHROS_EXTRAS
+    OrthrosExtras::CheatListMouse(xpos, ypos);
+#endif
     if (!FrontEndMenuManager.m_bMenuActive)
         return;
 
@@ -1344,6 +1348,13 @@ void inputEventHandler() {
                 mouseRelY += event.motion.yrel;
                 break;
             case SDL_MOUSEWHEEL: scrollCB(event.wheel.x, event.wheel.y); break;
+#ifdef ORTHROS_EXTRAS
+            // (a click on the cheat list, at the click whatever the frame rate)
+            case SDL_MOUSEBUTTONDOWN:
+                if (event.button.button == SDL_BUTTON_LEFT)
+                    OrthrosExtras::CheatListClick(event.button.x, event.button.y);
+                break;
+#endif
 
             // note that SDL_CONTROLLERDEVICEADDED/REMOVED exists, but it did not work for me
             case SDL_JOYDEVICEADDED:	/* fall-through */
@@ -1378,6 +1389,16 @@ void inputEventHandler() {
     // The frontend needs absolute positions, so keep it free there.
     bool wantRelative = gGameState == GS_PLAYING_GAME &&
                         !FrontEndMenuManager.m_bMenuActive && !WindowIconified;
+#ifdef ORTHROS_EXTRAS
+    // (the cheat list's codes are clicked: the mouse free and the system's cursor shown while it is open)
+    static bool cursorShown = false;
+    if (OrthrosExtras::IsCheatListOpen())
+        wantRelative = false;
+    if (OrthrosExtras::IsCheatListOpen() != cursorShown) {
+        cursorShown = OrthrosExtras::IsCheatListOpen();
+        SDL_ShowCursor(cursorShown ? SDL_ENABLE : SDL_DISABLE);
+    }
+#endif
     if (wantRelative != mouseRelativeMode) {
         if (SDL_SetRelativeMouseMode(wantRelative ? SDL_TRUE : SDL_FALSE) == 0) {
             mouseRelativeMode = wantRelative;
@@ -1389,6 +1410,9 @@ void inputEventHandler() {
                 SDL_GetMouseState(&x, &y);
                 PSGLOBAL(lastMousePos.x) = x;
                 PSGLOBAL(lastMousePos.y) = y;
+#ifdef ORTHROS_EXTRAS
+                OrthrosExtras::CheatListMouse(x, y);
+#endif
             }
         } else {
             // switch failed: never leave the menu with a grabbed pointer and

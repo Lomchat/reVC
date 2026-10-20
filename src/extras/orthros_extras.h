@@ -28,6 +28,11 @@ namespace OrthrosExtras
 	void ProcessCheatList();
 	// Once a frame, over everything else.
 	void RenderCheatList();
+	// The mouse over the list (absolute while it is open), a click on it: a code clicked is as if typed.
+	void CheatListMouse(float x, float y);
+	bool CheatListClick(float x, float y);
+	// The game's left button, read (Pad.cpp): true while the click that chose a code is still down.
+	bool SwallowLeftButton(bool down);
 
 	// The frontend: a page shown (SwitchToNewScreen), a game to load (MENUPAGE_LOADING_IN_PROGRESS: the slot's, or the
 	// free mode's start — CheckSlotDataValid's part), a new story game; a game saved (a save screen opening, a mission's
@@ -36,6 +41,8 @@ namespace OrthrosExtras
 	bool CheckLoad(int32 slot);
 	void StartingNewGame();
 	void SaveMenuOpening();
+	// A saved game loaded (GenericLoad): a free one's state put right.
+	void GameLoaded();
 	// The free mode's page.
 	void FreeModeContinuePress(int8 action);
 	void FreeModeNewPress(int8 action);

@@ -54,12 +54,15 @@ What differs from the desktop build, all under `__EMSCRIPTEN__`:
 `-DREVC_ORTHROS_EXTRAS=ON` builds Orthros' modified game on top (`src/extras/orthros_extras.h`, define
 `ORTHROS_EXTRAS`; without it nothing changes):
 - **The HELP cheat**: the cheats by kind, sorted, in the game's own fonts and colours, over the paused game (English
-  or French as the game); HELP, Enter, Backspace or Esc close it.
+  or French as the game), the mouse free over it: a code clicked is as if typed, and the game goes on; HELP, Enter,
+  Backspace or Esc close it.
 - **The free mode**, a game of its own in the main menu ("Free Mode", between "Start Game" and "Options"): its page
   has "Continue" (its most recent save), "New Free Game" (a game completed at 100 % found among the game's files,
   `orthros/freemode.b`, loaded as it is), and the game's own "Load Game" and "Delete Game" pages on its saves, files
   of their own (`GTAVCfree<n>.b`; the story's stay `GTAVCsf<n>.b`). In a free game the pause menu has "Save Game":
-  a safe house's save screen anywhere but during a mission, without the six hours such a save lets pass.
+  a safe house's save screen anywhere but during a mission, without the six hours such a save lets pass. A free game
+  loaded has the phone calls its 100 % player never answered marked made (five conversations of the story, the phone
+  ringing for them again and again otherwise).
 
 ## Screenshots
 
