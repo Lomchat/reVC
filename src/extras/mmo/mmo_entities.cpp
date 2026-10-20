@@ -62,6 +62,7 @@ static const double DELAY = 100.0;          // copies shown this many ms behind 
 static const double EXTRAPOLATE = 250.0;    // at most this far ahead of the last state
 static const double SILENCE = 15000.0;      // a copy without states this long is deleted
 static const double ORPHAN = 3000.0;        // a copy whose owner left, without an OWNER record, this long
+static const double OWNER_FAR = 3000.0;     // a copy without states this long while its owner's player is far from it
 static const double PENDING_LIFE = 5000.0;  // a state waiting for its model or vehicle kept this long
 static const double CLAIM_RETRY = 1000.0;   // the local player's car claimed again while the server says another's
 static const double CAR_WAIT = 30000.0;     // the "car" test command's model waited for this long
@@ -1543,6 +1544,7 @@ BecomePuppet(NetEntity *ne, int32 owner)
 	State &s = d->st;
 	s.netid = ne->netid;
 	s.kind = ne->kind;
+	s.flags = IsDead(e) ? EF_DEAD : 0;
 	s.pos = e->GetPosition();
 	s.vel = ((CPhysical *)e)->m_vecMoveSpeed;
 	s.area = d->area;
@@ -1770,7 +1772,7 @@ UpkeepPuppets(double now)
 		if (d == nil || !ne->puppet)
 			continue;
 		CEntity *e = ne->e;
-		if (e == FindPlayerVehicle()) // (claimed below, never deleted under the player)
+		if (e == FindPlayerVehicle() || e->bRemoveFromWorld) // (claimed below, never deleted under the player; going)
 			continue;
 		if (Player(ne->owner) == nil) {
 			if (d->ownerMissing == 0.0)
@@ -1778,7 +1780,10 @@ UpkeepPuppets(double now)
 		} else
 			d->ownerMissing = 0.0;
 		const bool far = d->area != CGame::currArea || (e->GetPosition() - here).Magnitude() > DELETE_RANGE;
-		const bool silent = now - d->lastState > SILENCE;
+		// (no states lately, its owner's player far from it: it went with them — a car they drove away, teleported)
+		RemotePlayer *owner = Player(ne->owner);
+		const bool silent = now - d->lastState > SILENCE ||
+		                    (now - d->lastState > OWNER_FAR && owner && owner->hasState && (owner->pos - e->GetPosition()).Magnitude() > DELETE_RANGE);
 		const bool orphan = d->ownerMissing != 0.0 && now - d->ownerMissing > ORPHAN;
 		if (far || silent || orphan || d->rebuild) {
 			// (made again from its last state when it comes back to life)
@@ -2278,7 +2283,8 @@ Entities_OnOwner(uint32 netid, int32 owner, int32 previous)
 		d->giving = false;
 		if (ne->puppet) {
 			// (a car its player drove, its player gone: it goes with them)
-			if ((d->st.flags & EF_DRIVEN) && previous != NO_SLOT && Player(previous) == nil && e != FindPlayerVehicle()) {
+			if ((d->st.flags & EF_DRIVEN) && previous != NO_SLOT && previous != LocalSlot() && Player(previous) == nil &&
+			    e != FindPlayerVehicle()) {
 				ne->puppet = false;
 				ne->owner = (uint8)LocalSlot();
 				SetCounted(e, d, true);
@@ -2562,6 +2568,25 @@ Entities_Debug(void)
 		}
 		DebugAppend("]}");
 	}
+	// (the networked entities nearest the local player: where each is here, owned or a copy, and by whom)
+	DebugAppend(",\"near\":[");
+	if (Live()) {
+		const CVector here = FindPlayerCoors();
+		int32 k = 0;
+		for (int32 pass = 0; pass < 2; pass++) // (vehicles first)
+			for (int32 i = 0; i < RegistrySize() && k < 40; i++) {
+				NetEntity *ne = RegistryAt(i);
+				EntData *d = Data(ne);
+				if (d == nil || ne->e->IsVehicle() != (pass == 0))
+					continue;
+				const CVector p = ne->e->GetPosition();
+				if ((p - here).Magnitude() > 120.0f)
+					continue;
+				DebugAppend("%s{\"id\":%u,\"k\":%d,\"m\":%d,\"p\":[%.1f,%.1f,%.1f],\"o\":%d,\"copy\":%s}", k++ ? "," : "", ne->netid,
+				            ne->kind, ne->e->GetModelIndex(), p.x, p.y, p.z, ne->owner, ne->puppet ? "true" : "false");
+			}
+	}
+	DebugAppend("],\"playerVehicle\":%u", Live() && FindPlayerVehicle() ? NetIdOf(FindPlayerVehicle()) : 0u);
 	DebugAppend(",\"entities\":{\"live\":%s,\"sent\":%u,\"received\":%u,\"created\":%u,\"deleted\":%u,\"gone\":%u,"
 	            "\"migrations\":%u,\"ownerIn\":%u,\"claims\":%u,\"claimsRefused\":%u,\"keeps\":%u,\"refusedSpawns\":%u,"
 	            "\"parkedLinked\":%u,\"orphaned\":%u,\"notHere\":%u,\"rebuilt\":%u,\"pending\":%d,\"pendingModels\":%d,"
