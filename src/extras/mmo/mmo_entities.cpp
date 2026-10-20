@@ -350,7 +350,7 @@ IsLaw(CEntity *e)
 		return ((CPed *)e)->m_nPedType == PEDTYPE_COP;
 	if (e->IsVehicle()) {
 		CVehicle *veh = (CVehicle *)e;
-		return veh->bIsLawEnforcer || veh->IsHeli() || veh->bCreatedAsPoliceVehicle;
+		return veh->bIsLawEnforcer || veh->IsHeli() || veh->bCreatedAsPoliceVehicle || veh->IsLawEnforcementVehicle();
 	}
 	return false;
 }
