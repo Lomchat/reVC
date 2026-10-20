@@ -122,6 +122,8 @@ static double lastMelee;
 static struct { int32 sent, received, applied, dropped; } hits;
 static struct { uint32 target; int32 method; float damage; double at; } lastSent, lastReceived;
 static int32 eventsSent, eventsReceived, kills, deaths;
+static int32 fireCommands, firedCommands;
+static CVector lastTraceStart, lastTraceEnd;
 static char lastKiller[24], lastVictim[24];
 static uint32 lastDeathKiller;
 
@@ -1276,6 +1278,10 @@ BulletTrace(const CVector &start, const CVector &end, int32 weaponType, CEntity 
 {
 	if (bReplaying || !Playing() || !Local(shooter))
 		return;
+	if (shooter == FindPlayerPed()) {
+		lastTraceStart = start;
+		lastTraceEnd = end;
+	}
 	if (!AnyoneNear(start, NEAR) || !ShotBudget())
 		return;
 	// (the muzzle once a shot: a shotgun's pellets share it)
@@ -1587,7 +1593,7 @@ AimTarget(CPlayerPed *ped, float range)
 		const float dist = to.Magnitude();
 		if (dist < 0.1f || dist > bestDist)
 			continue;
-		if (DotProduct(to, fwd) / dist < 0.9f)
+		if (DotProduct(to, fwd) / dist < 0.7f)
 			continue;
 		best = p->puppet;
 		bestDist = dist;
@@ -1605,21 +1611,46 @@ Face(CPlayerPed *ped, const CVector &pos)
 	ped->UpdateRwFrame();
 }
 
+// (the last "fire": its target, what a line from the hand to it meets — the debug state's)
+static struct { uint32 target; int32 hit; CVector end; bool fired; int32 state; } lastFire;
+
 // (one shot of the held weapon as the player's attack makes it: at the puppet aimed at as a lock-on does, else straight
 // ahead)
 static bool
-FireOnce(void)
+FireOnce(int32 slot)
 {
 	CPlayerPed *ped = FindPlayerPed();
 	if (ped == nil || ped->DyingOrDead() || ped->bInVehicle)
 		return false;
 	CWeapon *weapon = ped->GetWeapon();
 	CWeaponInfo *info = CWeaponInfo::GetWeaponInfo(weapon->m_eWeaponType);
-	CEntity *target = AimTarget(ped, info->m_fRange);
+	CEntity *target = nil;
+	if (slot >= 0) {
+		const RemotePlayer *p = Player(slot);
+		target = p ? p->puppet : nil;
+	} else
+		target = AimTarget(ped, info->m_fRange);
 	if (target)
 		Face(ped, target->GetPosition());
-	CVector source = info->m_vecFireOffset;
-	ped->TransformToNode(source, PED_HANDR);
+	// (the muzzle where an aimed weapon is, whatever the animation of the moment puts the hand at)
+	CVector source = ped->GetMatrix() * CVector(0.0f, 0.6f, 0.5f);
+	// (what the shot's line meets, for the debug state)
+	CVector aimAt = target ? target->GetPosition() : source + info->m_fRange * ped->GetForward();
+	CColPoint point;
+	CEntity *hit = nil;
+	CWorld::pIgnoreEntity = ped;
+	CWorld::bIncludeBikers = true;
+	lastFire.hit = 0;
+	lastFire.end = aimAt;
+	if (CWorld::ProcessLineOfSight(source, aimAt, point, hit, true, true, true, true, true, false, false, true) && hit) {
+		lastFire.end = point.point;
+		lastFire.hit = IsPuppet(hit) ? 9 : hit->GetType();
+	}
+	CWorld::bIncludeBikers = false;
+	CWorld::pIgnoreEntity = nil;
+	lastFire.target = IdOf(target);
+	lastFire.state = weapon->m_eWeaponState;
+
 	CEntity *oldPointAt = ped->m_pPointGunAt;
 	const uint32 oldFlags = ped->m_pedIK.m_flags;
 	const bool oldMouse = CCamera::m_bUseMouse3rdPerson;
@@ -1630,10 +1661,12 @@ FireOnce(void)
 	CCamera::m_bUseMouse3rdPerson = false;
 	if (weapon->m_eWeaponState == WEAPONSTATE_FIRING && weapon->m_nTimer < CTimer::GetTimeInMilliseconds())
 		weapon->m_eWeaponState = WEAPONSTATE_READY;
+	ped->m_fAttackButtonCounter = 0.0f; // (one press: the first shot's accuracy)
 	const bool fired = weapon->Fire(ped, &source);
 	CCamera::m_bUseMouse3rdPerson = oldMouse;
 	ped->m_pPointGunAt = oldPointAt;
 	ped->m_pedIK.m_flags = oldFlags;
+	lastFire.fired = fired;
 	return fired;
 }
 
@@ -1654,8 +1687,11 @@ Combat_TestCommand(const char *cmd)
 {
 	const char *args;
 	if (Word(cmd, "fire", &args)) {
-		const bool fired = Playing() && FireOnce();
-		debug("Orthros MMO: fire -> %s\n", fired ? "fired" : "not fired");
+		// fire [slot]: at that player's puppet, else ahead (the puppet in front locked on)
+		const bool fired = Playing() && FireOnce(*args ? atoi(args) : -1);
+		fireCommands++;
+		if (fired)
+			firedCommands++;
 		return true;
 	}
 	if (Word(cmd, "aim", &args)) {
@@ -1726,6 +1762,11 @@ Combat_Debug(void)
 	            lastSent.damage, lastSent.at > 0.0 ? now - lastSent.at : -1.0);
 	DebugAppend(",\"lastReceived\":{\"attacker\":%u,\"method\":%d,\"damage\":%.1f,\"ago\":%.0f}", lastReceived.target,
 	            lastReceived.method, lastReceived.damage, lastReceived.at > 0.0 ? now - lastReceived.at : -1.0);
+	DebugAppend(",\"fires\":%d,\"fired\":%d,\"lastFire\":{\"target\":%u,\"fired\":%s,\"state\":%d,\"hit\":%d,\"end\":[%.2f,%.2f,%.2f]}",
+	            fireCommands, firedCommands, lastFire.target, lastFire.fired ? "true" : "false", lastFire.state, lastFire.hit,
+	            lastFire.end.x, lastFire.end.y, lastFire.end.z);
+	DebugAppend(",\"lastTrace\":[%.2f,%.2f,%.2f,%.2f,%.2f,%.2f]", lastTraceStart.x, lastTraceStart.y, lastTraceStart.z,
+	            lastTraceEnd.x, lastTraceEnd.y, lastTraceEnd.z);
 	DebugAppend(",\"eventsSent\":%d,\"eventsReceived\":%d,\"kills\":%d,\"deaths\":%d,\"lastKiller\":\"", eventsSent,
 	            eventsReceived, kills, deaths);
 	for (const char *c = lastKiller; *c; c++)
