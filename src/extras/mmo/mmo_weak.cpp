@@ -135,6 +135,7 @@ WEAK void Session_Refused(int32) {}
 WEAK void Session_CharResult(int32, int32, uint32) {}
 WEAK void Session_Left(void) {}
 WEAK void Session_LinkReset(void) {}
+WEAK void Session_ResetModules(void) { Players_Reset(); Entities_Reset(); Combat_Reset(); World_Reset(); Social_Reset(); }
 WEAK void Session_BeginProcess(void) {}
 WEAK void Session_PreWorld(void) {}
 WEAK void Session_PostWorld(void) {}

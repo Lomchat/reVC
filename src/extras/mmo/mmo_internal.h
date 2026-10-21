@@ -193,6 +193,7 @@ void Session_Refused(int32 reason);
 void Session_CharResult(int32 op, int32 status, uint32 id);
 void Session_Left(void);
 void Session_LinkReset(void);               // the link came back: rejoin
+void Session_ResetModules(void);            // every module's state of the shared world dropped (leave, link reset)
 void Session_BeginProcess(void);
 void Session_PreWorld(void);
 void Session_PostWorld(void);

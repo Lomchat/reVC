@@ -454,9 +454,7 @@ static void
 Resync(bool reconnected)
 {
 	debug("Orthros MMO: %s, resynchronising\n", reconnected ? "link reset" : "queue overflow");
-	Players_Reset();
-	Entities_Reset();
-	Combat_Reset();
+	Session_ResetModules(); // (hideout locks and the chat too: the server sends them again after WELCOME)
 	LeftWorld();
 	if (!helloThisPump) {
 		if (reconnected) {
@@ -1192,10 +1190,17 @@ CoreCommand(const char *cmd, double now)
 	return false;
 }
 
+// (in a shared world, the test commands any player may run: what a player does with the keyboard, the menus, the chat,
+// and the requests the server checks itself — time, weather, worldcheat, cheat; everything else, a new module's
+// commands too, is an administrator's)
 static bool
-CheatLikeCommand(const char *cmd)
+PlayerCommand(const char *cmd)
 {
-	static const char *const words[] = { "tp", "weapon", "money", "car", "health", "armour", "give", "wanted" };
+	static const char *const words[] = {
+		"join", "leave", "menu", "lobby", "mpmenu", "mpcreate", "mpplay", "mpskin", "mpdelete",
+		"say", "chatopen", "teleport", "cheat", "walk", "sprint", "jump", "crouch", "stop", "population", "garage",
+		"time", "weather", "worldcheat",
+	};
 	for (const char *w : words) {
 		const size_t k = strlen(w);
 		if (strncmp(cmd, w, k) == 0 && (cmd[k] == ' ' || cmd[k] == '\0'))
@@ -1230,7 +1235,7 @@ TestStep(double now)
 		return;
 	// (?mmotest is any page's to add: in a shared world, the commands that change the player's state are an
 	// administrator's only, like the cheats)
-	if (mode != MODE_OFF && mode != MODE_LOBBY && !admin && CheatLikeCommand(cmd)) {
+	if (mode != MODE_OFF && mode != MODE_LOBBY && !admin && !PlayerCommand(cmd)) {
 		debug("Orthros MMO: test command \"%s\" refused (not an administrator)\n", cmd);
 		return;
 	}

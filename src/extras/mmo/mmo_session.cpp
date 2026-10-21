@@ -607,8 +607,9 @@ SetPauseLeaveEntry(bool on)
 }
 
 // ---------------------------------------------------------------- leaving
-static void
-ResetModules(void)
+// (also the wire's resynchronisation: one list, so a leave and a link reset drop the same state)
+void
+Session_ResetModules(void)
 {
 	Players_Reset();
 	Entities_Reset();
@@ -664,7 +665,7 @@ BackToMainMenu(void)
 static void
 FinishLeave(void)
 {
-	ResetModules();
+	Session_ResetModules();
 	ResetSession();
 	SetMode(MODE_OFF);
 	Disconnect();
@@ -694,7 +695,7 @@ AbortJoin(void)
 	if (FrontEndMenuManager.m_bGameNotLoaded)
 		SetMode(LinkState() == LINK_OPEN ? MODE_LOBBY : MODE_OFF);
 	else {
-		ResetModules();
+		Session_ResetModules();
 		SetMode(MODE_OFF);
 		Disconnect();
 		BackToMainMenu();
@@ -711,7 +712,7 @@ DropOut(void)
 	switch (Mode()) {
 	case MODE_ACTIVE:
 	case MODE_LEAVING:
-		ResetModules();
+		Session_ResetModules();
 		ResetSession();
 		SetMode(MODE_OFF);
 		BackToMainMenu();
@@ -1026,7 +1027,7 @@ GameStarting(bool shared)
 			RequestLeave();
 		OrthrosExtras::CancelSharedWorld();
 		if (InWorld())
-			ResetModules();
+			Session_ResetModules();
 		ResetSession();
 		SetMode(MODE_OFF);
 		break;

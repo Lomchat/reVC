@@ -1711,8 +1711,9 @@ Combat_TestCommand(const char *cmd)
 {
 	const char *args;
 	if (Word(cmd, "fire", &args)) {
-		// fire [slot]: at that player's puppet, else ahead (the puppet in front locked on)
-		const bool fired = Playing() && FireOnce(*args ? atoi(args) : -1);
+		// fire [slot]: at that player's puppet, else ahead (the puppet in front locked on); an administrator's, as the
+		// players module's aim: an aimbot otherwise
+		const bool fired = Playing() && IsAdmin() && FireOnce(*args ? atoi(args) : -1);
 		fireCommands++;
 		if (fired)
 			firedCommands++;
@@ -1723,7 +1724,7 @@ Combat_TestCommand(const char *cmd)
 		const int32 slot = atoi(args);
 		const RemotePlayer *p = Player(slot);
 		aimSlot = p ? slot : -1;
-		CPlayerPed *ped = Playing() ? FindPlayerPed() : nil;
+		CPlayerPed *ped = Playing() && IsAdmin() ? FindPlayerPed() : nil;
 		if (ped && p && !ped->bInVehicle)
 			Face(ped, p->puppet ? p->puppet->GetPosition() : p->pos);
 		return true;
