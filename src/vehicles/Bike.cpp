@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 #include "General.h"
 #include "Pad.h"
 #include "DMAudio.h"
@@ -225,6 +226,10 @@ CBike::ProcessControl(void)
 
 	if(CReplay::IsPlayingBack())
 		return;
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::PuppetVehicleControl(this)) // (a shared world's copy: moved by its owner's states)
+		return;
+#endif
 
 	ProcessCarAlarm();
 

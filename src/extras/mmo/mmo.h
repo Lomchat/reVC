@@ -75,6 +75,9 @@ namespace OrthrosMmo
 	bool PlayerMayEnter(CVehicle *veh);
 	// A car generator about to spawn (CarGen.cpp): its index in CTheCarGenerators::CarGeneratorArray.
 	bool MayGenerateParked(int32 generator, const CVector &pos);
+	// The game is about to delete an owned entity for a reason other than distance (CarCtrl.cpp: an off-screen car
+	// recycled, a wreck tidied up): true = a remote player is near it, keep it.
+	bool KeepForOthers(CEntity *e);
 
 	// ---------------------------------------------------------------- combat (mmo_combat.cpp)
 	// CPed::InflictDamage on entry: true = handled (a puppet's damage forwarded or dropped), return *result.

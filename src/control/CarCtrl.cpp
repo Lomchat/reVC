@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "CarCtrl.h"
 
@@ -323,6 +324,10 @@ CCarCtrl::GenerateOneRandomCar()
 				return;
 		}
 	}
+#ifdef ORTHROS_EXTRAS
+	if (!OrthrosMmo::MayGenerateAt(spawnPosition, (carClass == COPS || carClass == COPS_BOAT) && pWanted->GetWantedLevel() > 1 ? OrthrosMmo::GEN_LAW : bBoatGenerated ? OrthrosMmo::GEN_BOAT : OrthrosMmo::GEN_TRAFFIC)) // (a shared world: the closest player populates)
+		return;
+#endif
 	int16 colliding;
 	CWorld::FindObjectsKindaColliding(spawnPosition, bBoatGenerated ? 40.0f : 10.0f, true, &colliding, 2, nil, false, true, true, false, false);
 	if (colliding)
@@ -988,6 +993,10 @@ CCarCtrl::PossiblyRemoveVehicle(CVehicle* pVehicle)
 		if (pVehicle->bExtendedRange)
 			threshold *= EXTENDED_RANGE_DESPAWN_MULTIPLIER;
 		if (distanceToPlayer > threshold && !CGarages::IsPointWithinHideOutGarage(pVehicle->GetPosition())){
+#ifdef ORTHROS_EXTRAS
+			if (OrthrosMmo::MigrateInsteadOfRemove(pVehicle)) // (a shared world: a remote player near it takes it)
+				return;
+#endif
 			if (pVehicle->GetIsOnScreen()){
 				pVehicle->bFadeOut = true;
 			}else{
@@ -1007,6 +1016,9 @@ CCarCtrl::PossiblyRemoveVehicle(CVehicle* pVehicle)
 		pVehicle->CanBeDeleted() &&
 		!CTrafficLights::ShouldCarStopForLight(pVehicle, true) &&
 		!CTrafficLights::ShouldCarStopForBridge(pVehicle) &&
+#ifdef ORTHROS_EXTRAS
+		!OrthrosMmo::KeepForOthers(pVehicle) && // (a shared world: kept while a remote player is near it)
+#endif
 		!CGarages::IsPointWithinHideOutGarage(pVehicle->GetPosition())){
 		CWorld::Remove(pVehicle);
 		delete pVehicle;
@@ -1018,7 +1030,11 @@ CCarCtrl::PossiblyRemoveVehicle(CVehicle* pVehicle)
 				CTimer::GetTimeInMilliseconds() > pVehicle->m_nSetPieceExtendedRangeTime &&
 				!(pVehicle->GetIsOnScreen())) {
 				if ((pVehicle->GetPosition() - vecPlayerPos).MagnitudeSqr() > SQR(6.5f)) {
+#ifdef ORTHROS_EXTRAS
+					if (!CGarages::IsPointWithinHideOutGarage(pVehicle->GetPosition()) && !OrthrosMmo::KeepForOthers(pVehicle)) { // (a shared world: kept while a remote player is near it)
+#else
 					if (!CGarages::IsPointWithinHideOutGarage(pVehicle->GetPosition())) {
+#endif
 						CWorld::Remove(pVehicle);
 						delete pVehicle;
 					}
@@ -3237,7 +3253,11 @@ bool CCarCtrl::GenerateOneEmergencyServicesCar(uint32 mi, CVector vecPos)
 			int16 colliding[2];
 			if (!ThePaths.GetNode(curNode)->bWaterPath) {
 				CWorld::FindObjectsKindaColliding(spawnPos, 10.0f, true, colliding, 2, nil, false, true, true, false, false);
+#ifdef ORTHROS_EXTRAS
+				if (colliding[0] == 0 && OrthrosMmo::MayGenerateAt(spawnPos, OrthrosMmo::GEN_EMERGENCY)) // (a shared world: the closest player sends it)
+#else
 				if (colliding[0] == 0)
+#endif
 					created = true;
 			}
 		}

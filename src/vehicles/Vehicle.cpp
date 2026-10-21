@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 #include "main.h"
 
 #include "General.h"
@@ -189,6 +190,9 @@ CVehicle::CVehicle(uint8 CreatedBy)
 
 CVehicle::~CVehicle()
 {
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::EntityDestroyed(this); // (a shared world's: told gone, or its copy's data freed, players' copies got off)
+#endif
 	m_nAlarmState = 0;
 	if (m_audioEntityId >= 0){
 		DMAudio.DestroyEntity(m_audioEntityId);
@@ -1648,6 +1652,10 @@ CVehicle::CanBeDeleted(void)
 
 	if(m_nNumGettingIn || m_nGettingOutFlags)
 		return false;
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::IsPuppet(this)) // (a shared world's copy: deleted when its owner says so)
+		return false;
+#endif
 
 	if(pDriver){
 		// This looks like it was inlined

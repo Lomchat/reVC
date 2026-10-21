@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "main.h"
 #include "General.h"
@@ -127,6 +128,10 @@ CBoat::GetComponentWorldPosition(int32 component, CVector &pos)
 void
 CBoat::ProcessControl(void)
 {
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::PuppetVehicleControl(this)) // (a shared world's copy: moved by its owner's states)
+		return;
+#endif
 	bool onLand = m_fDamageImpulse > 0.0f && m_vecDamageNormal.z > 0.1f;
 
 	PruneWakeTrail();

@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 #include "Camera.h"
 #include "CarCtrl.h"
 #include "CopPed.h"
@@ -1560,6 +1561,10 @@ CWorld::RemoveFallenPeds(void)
 	for(int poolIndex = poolSize - 1; poolIndex >= 0; poolIndex--) {
 		CPed *ped = CPools::GetPedPool()->GetSlot(poolIndex);
 		if(ped) {
+#ifdef ORTHROS_EXTRAS
+			if(OrthrosMmo::IsPuppet(ped)) // (a shared world's copy: placed by its owner's states)
+				continue;
+#endif
 			if(ped->GetPosition().z < MAP_Z_LOW_LIMIT) {
 				if(ped->CharCreatedBy != RANDOM_CHAR || ped->IsPlayer()) {
 					int closestNode = ThePaths.FindNodeClosestToCoors(ped->GetPosition(), PATH_PED,
@@ -1583,6 +1588,10 @@ CWorld::RemoveFallenCars(void)
 	for(int poolIndex = poolSize - 1; poolIndex >= 0; poolIndex--) {
 		CVehicle *veh = CPools::GetVehiclePool()->GetSlot(poolIndex);
 		if(veh) {
+#ifdef ORTHROS_EXTRAS
+			if(OrthrosMmo::IsPuppet(veh)) // (a shared world's copy: placed by its owner's states)
+				continue;
+#endif
 			if(veh->GetPosition().z < MAP_Z_LOW_LIMIT) {
 				if(veh->VehicleCreatedBy == MISSION_VEHICLE && !veh->bRenderScorched || veh == FindPlayerVehicle() ||
 				   (veh->pDriver && veh->pDriver->IsPlayer())) {
