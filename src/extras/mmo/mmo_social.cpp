@@ -20,6 +20,8 @@
 #include "Sprite2d.h"
 #include "Text.h"
 #include "Radar.h"
+#include "Hud.h"
+#include "CutsceneMgr.h"
 #include "Camera.h"
 #include "Timer.h"
 #include "Game.h"
@@ -174,6 +176,13 @@ AddLine(int32 kind, int32 slot, const char *name, const char *utf8)
 static void
 Notice(int32 kind, const char *en, const char *fr)
 {
+	// (a free game draws no chat: the game's help box says it)
+	if (!IsActive()) {
+		static wchar help[LINE_BYTES];
+		GameText(Say(en, fr), help, LINE_BYTES);
+		CHud::SetHelpMessage(help, true);
+		return;
+	}
 	AddLine(kind, NO_SLOT, "", Say(en, fr));
 }
 
@@ -416,6 +425,11 @@ MayTeleport(bool tell)
 	} else if (ped->EnteringCar() || ped->GetPedState() == PED_EXIT_CAR || ped->GetPedState() == PED_DRAG_FROM_CAR) {
 		en = "Not while getting in or out of a vehicle";
 		fr = "Pas en montant ou en descendant d'un véhicule";
+	} else if (CCutsceneMgr::IsRunning() ||
+	           (CPad::GetPad(0)->DisablePlayerControls & ~(PLAYERCONTROL_MMO_SOCIAL | OrthrosExtras::PLAYERCONTROL_ORTHROS_LIST))) {
+		// (a cutscene, a script's or a garage's sequence holding the player: not taken from under it)
+		en = "Not now: the game holds the player";
+		fr = "Pas maintenant : le jeu tient le joueur";
 	} else if (ped->InVehicle() && !OwnedHere(ped->m_pMyVehicle)) {
 		en = "Get out of this vehicle first";
 		fr = "Descendez d'abord de ce véhicule";
@@ -428,7 +442,7 @@ MayTeleport(bool tell)
 static void
 OpenTeleportList(void)
 {
-	if (teleportState != TP_NONE)
+	if (teleportState != TP_NONE || !MayTeleport(true))
 		return;
 	OrthrosExtras::OpenList(&teleportList);
 }
