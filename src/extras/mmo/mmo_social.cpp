@@ -255,6 +255,12 @@ FeedCheat(const char *code)
 bool
 CheatString(char *reversed)
 {
+	// (the free mode has "teleport" too: the same list, the same way there)
+	if (!IsActive() && OrthrosExtras::bFreeMode && Typed(reversed, "TELEPORT")) {
+		reversed[0] = ' ';
+		OpenTeleportList();
+		return true;
+	}
 	if (!IsActive())
 		return false;
 	if (Typed(reversed, "TELEPORT")) {
@@ -667,7 +673,10 @@ Social_BeginProcess(void)
 {
 	if (!IsActive()) {
 		CloseChat();
-		teleportState = TP_NONE;
+		// (a free game's teleport goes on: its fades, its scene)
+		if (!OrthrosExtras::bFreeMode)
+			teleportState = TP_NONE;
+		ProcessTeleport();
 		UpdateControls();
 		return;
 	}
@@ -977,6 +986,11 @@ Social_Debug(void)
 	DebugAppend(",\"chat\":%s,\"chatOpen\":%s,\"teleportList\":%s,\"teleporting\":%s,\"notice\":\"%s\"", chat,
 	            chatOpen ? "true" : "false", OrthrosExtras::IsListOpen(&teleportList) ? "true" : "false",
 	            teleportState != TP_NONE ? "true" : "false", notice);
+	// (a free game's player, for its teleport's checks: the shared world's session tells its own)
+	if (!IsActive() && OrthrosExtras::bFreeMode && FindPlayerPed()) {
+		const CVector &p = FindPlayerPed()->GetPosition();
+		DebugAppend(",\"freeMode\":{\"pos\":[%.2f,%.2f,%.2f],\"health\":%.1f}", p.x, p.y, p.z, FindPlayerPed()->m_fHealth);
+	}
 }
 }
 #endif

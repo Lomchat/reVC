@@ -78,6 +78,8 @@ static const float interiorPedRoads[][6] = {
 // whoever leaves the hotel; the ground's coordinates, heading in degrees).
 static const int32 NEW_MONEY = 5000;
 static const int32 NEW_PISTOL_AMMO = 68;
+// (the owner's choice, 2026-10-21: of the 100 % perks, the doubled health and the infinite sprint stay for everyone)
+static const int32 MAX_HEALTH = 200;
 static const CVector NEW_SPAWN(233.5f, -1278.45f, 11.0f);
 static const float NEW_SPAWN_HEADING = 270.0f;
 
@@ -229,7 +231,7 @@ NewCharacter(SavedState *s)
 	s->heading = DEGTORAD(NEW_SPAWN_HEADING);
 	s->onGround = true;
 	s->area = AREA_MAIN_MAP;
-	s->health = 100.0f;
+	s->health = (float)MAX_HEALTH;
 	s->armour = 0.0f;
 	s->money = NEW_MONEY;
 	s->numWeapons = 1;
@@ -275,7 +277,7 @@ ReadState(const uint8 *data, int32 length, SavedState *s)
 	if (!(Abs(s->heading) < 100.0f))
 		s->heading = 0.0f;
 	if (!(s->health > 0.0f))
-		s->health = 100.0f;
+		s->health = (float)MAX_HEALTH;
 	if (!(s->armour > 0.0f))
 		s->armour = 0.0f;
 	s->money = Clamp(s->money, 0, 999999999);
@@ -530,13 +532,13 @@ PrepareWorld(void)
 			ThePaths.SwitchPedRoadsOffInArea(Min(b[0], b[3]), Max(b[0], b[3]), Min(b[1], b[4]), Max(b[1], b[4]), Min(b[2], b[5]), Max(b[2], b[5]), true);
 		}
 
-	// (the player in control again, and no more than a new game's: the start's 100 % perks — 200 health and armour,
-	// fireproof, infinite sprint, fast reload — are not a character's; death and arrest cost as in the game)
+	// (the player in control again; of the start's 100 % perks only 200 health and the infinite sprint are a
+	// character's (the owner's choice) — not 200 armour, fireproof, fast reload; death and arrest cost as in the game)
 	CPlayerInfo &player = CWorld::Players[CWorld::PlayerInFocus];
 	player.MakePlayerSafe(false);
-	player.m_nMaxHealth = 100;
+	player.m_nMaxHealth = MAX_HEALTH;
 	player.m_nMaxArmour = 100;
-	player.m_bInfiniteSprint = false;
+	player.m_bInfiniteSprint = true;
 	player.m_bFastReload = false;
 	player.m_bFireproof = false;
 	player.m_bGetOutOfHospitalFree = false;

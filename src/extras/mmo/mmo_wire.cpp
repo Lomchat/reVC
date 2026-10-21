@@ -1435,8 +1435,12 @@ Pump(void)
 void
 BeginProcess(void)
 {
-	if (Dormant())
+	// (a free game's teleport list, no shared world: only the social module's part of it)
+	if (Dormant()) {
+		if (OrthrosExtras::bFreeMode)
+			Social_BeginProcess();
 		return;
+	}
 	Session_BeginProcess();
 	World_BeginProcess();
 	Social_BeginProcess();
