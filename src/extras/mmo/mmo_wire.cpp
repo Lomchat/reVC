@@ -457,6 +457,7 @@ Resync(bool reconnected)
 	Players_Reset();
 	Entities_Reset();
 	Combat_Reset();
+	World_LinkReset();
 	LeftWorld();
 	if (!helloThisPump) {
 		if (reconnected) {

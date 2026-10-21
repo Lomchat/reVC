@@ -207,6 +207,7 @@ WEAK void World_GameLoaded(void) {}
 WEAK void World_BeginProcess(void) {}
 WEAK void World_PreWorld(void) {}
 WEAK void World_Reset(void) {}
+WEAK void World_LinkReset(void) {}
 WEAK void World_OnEvent(int32, int32, In &) {}
 WEAK bool World_TestCommand(const char *) { return false; }
 WEAK void World_Debug(void) {}
