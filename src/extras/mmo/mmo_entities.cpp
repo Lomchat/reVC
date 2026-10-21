@@ -72,8 +72,14 @@ static const double OWNER_FAR = 3000.0;     // a copy without states this long w
 static const double PENDING_LIFE = 5000.0;  // a state waiting for its model or vehicle kept this long
 static const double CLAIM_RETRY = 1000.0;   // the local player's car claimed again while the server says another's
 static const double CAR_WAIT = 30000.0;     // the "car" test command's model waited for this long
+static const double WRECK_WAIT = 300.0;     // a wrecked state waits this long for the owner's explosion event
+static const double WRECK_RECENT = 3000.0;  // a wreck told by a state younger than this blows the copy up
 
 enum { MAX_SAMPLES = 6, MAX_PENDING = 96, MAX_PASSENGERS = 8, MAX_GEN_SPAWNS = 8, MAX_CREATE_PER_FRAME = 6, MAX_IDS = 96 };
+// (pool room: a copy is made only while the local population's quota still to come plus this margin stays free (its
+// drivers, passengers, cops, roadblocks and the script's), and copies take at most half a pool; below RELIEF free
+// slots the farthest uncounted copy is deleted, before the game's own pool-full removers (8) delete ours)
+enum { PED_MARGIN = 40, VEHICLE_MARGIN = 30, POOL_RELIEF = 20 };
 // ENTITY_GONE reasons
 enum { GONE_REMOVED = 0, GONE_NOT_HERE = 1, GONE_DRIVER_LEFT = 2, GONE_RESET = 3 };
 // vehicle state flags (u16)
@@ -146,6 +152,7 @@ struct EntData {
 	bool rebuild;          // made again from its next state (revived, model changed)
 	double lastState, ownerMissing;
 	double deadAt;         // since when the copy is dying or dead here
+	double wreckSeen;      // since when its states say wrecked while the copy is not yet
 	Sample samples[MAX_SAMPLES];
 	int32 numSamples;
 	State st;
@@ -173,7 +180,7 @@ static double carAt;
 // (counters for the debug state)
 static struct {
 	uint32 sent, received, created, deleted, gone, migrations, received_owner, claims, claimsRefused, keeps,
-		refusedSpawns, parkedLinked, orphaned, notHere, rebuilt;
+		refusedSpawns, parkedLinked, orphaned, notHere, rebuilt, relieved, evicted;
 } stats;
 
 // ---------------------------------------------------------------- small helpers
@@ -925,6 +932,16 @@ Changed(CEntity *e, EntData *d, uint8 flags)
 	return (veh->pDriver ? NetIdOf(veh->pDriver) : 0) != d->sentVehicle;
 }
 
+// (an entity of ours no longer networked: the game keeps it, unregistered)
+static void
+Unshare(NetEntity *ne, EntData *d)
+{
+	CEntity *e = ne->e;
+	d->netid = 0;
+	ne->data = nil;
+	Unregister(e);
+}
+
 static void
 SendStates(double now)
 {
@@ -938,6 +955,14 @@ SendStates(double now)
 		CEntity *e = ne->e;
 		if (e->bRemoveFromWorld)
 			continue;
+		// (a script's entity no longer shareable, its mission car the local player left or a ped the script took: it
+		// stays the script's alone, never claimed away and deleted under its handle)
+		if (IsMission(e) && !Shareable(e)) {
+			if (d->announced)
+				SendGone(ne->netid, GONE_REMOVED);
+			Unshare(ne, d);
+			continue;
+		}
 		const uint8 flags = FlagsOf(e);
 		float distance;
 		const float range = (flags & EF_DRIVEN) ? CREATE_RANGE : SEND_RANGE;
@@ -1267,10 +1292,22 @@ ValidModel(const State &s)
 		switch (s.pedType) {
 		case PEDTYPE_CIVMALE: case PEDTYPE_CIVFEMALE: case PEDTYPE_GANG1: case PEDTYPE_GANG2: case PEDTYPE_GANG3:
 		case PEDTYPE_GANG4: case PEDTYPE_GANG5: case PEDTYPE_GANG6: case PEDTYPE_GANG7: case PEDTYPE_GANG8:
-		case PEDTYPE_GANG9: case PEDTYPE_CRIMINAL: case PEDTYPE_PROSTITUTE: case PEDTYPE_EMERGENCY: case PEDTYPE_FIREMAN:
+		case PEDTYPE_GANG9: case PEDTYPE_CRIMINAL: case PEDTYPE_PROSTITUTE:
 			return true;
+		// (these constructors pick their own model: the state's must be that one, so that the loaded check covers it)
+		case PEDTYPE_EMERGENCY:
+			return s.model == MI_MEDIC;
+		case PEDTYPE_FIREMAN:
+			return s.model == MI_FIREMAN;
 		case PEDTYPE_COP:
-			return s.copType <= COP_MIAMIVICE && (s.copType != COP_MIAMIVICE || (s.model >= MI_VICE1 && s.model <= MI_VICE8));
+			switch (s.copType) {
+			case COP_STREET: return s.model == MI_COP;
+			case COP_FBI: return s.model == MI_FBI;
+			case COP_SWAT: case COP_HELI_SWAT: return s.model == MI_SWAT;
+			case COP_ARMY: return s.model == MI_ARMY;
+			case COP_MIAMIVICE: return s.model >= MI_VICE1 && s.model <= MI_VICE8;
+			}
+			return false;
 		}
 		return false;
 	}
@@ -1321,8 +1358,13 @@ static CVehicle *
 MakeVehicle(const State &s)
 {
 	CVehicleModelInfo *mi = (CVehicleModelInfo *)CModelInfo::GetModelInfo(s.model);
-	if (mi->m_numComps != 0)
-		CVehicleModelInfo::SetComponentsToUse(s.extra0, s.extra1);
+	if (mi->m_numComps != 0) {
+		// (the state's extras index m_comps[]: kept only when they name one of this model's components)
+		const int32 numComps = Min((int32)mi->m_numComps, 6);
+		const int8 extra0 = s.extra0 >= 0 && s.extra0 < numComps ? s.extra0 : -1;
+		const int8 extra1 = s.extra1 >= 0 && s.extra1 < numComps ? s.extra1 : -1;
+		CVehicleModelInfo::SetComponentsToUse(extra0, extra1);
+	}
 	const uint8 createdBy = PuppetCreatedBy(s);
 	CVehicle *veh;
 	switch (s.kind) {
@@ -1365,6 +1407,66 @@ InRange(const State &s)
 	return (s.pos - FindPlayerCoors()).Magnitude() <= CREATE_RANGE;
 }
 
+static int32
+NumPuppets(bool peds)
+{
+	int32 n = 0;
+	for (int32 i = 0; i < RegistrySize(); i++) {
+		NetEntity *ne = RegistryAt(i);
+		if (ne && ne->puppet && ne->e->IsPed() == peds)
+			n++;
+	}
+	return n;
+}
+
+// (may one more copy take a pool slot without starving the local population?)
+static bool
+PuppetRoom(bool ped)
+{
+	if (ped) {
+		CPedPool *pool = CPools::GetPedPool();
+		const int32 cap = CGame::IsInInterior() ? CPopulation::MaxNumberOfPedsInUseInterior : CPopulation::MaxNumberOfPedsInUse;
+		const int32 toCome = Max(cap - (int32)CPopulation::ms_nTotalPeds, 0);
+		return pool->GetNoOfFreeSpaces() > toCome + PED_MARGIN && NumPuppets(true) < pool->GetSize() / 2;
+	}
+	CVehiclePool *pool = CPools::GetVehiclePool();
+	const int32 inUse = CCarCtrl::NumFiretrucksOnDuty + CCarCtrl::NumAmbulancesOnDuty + CCarCtrl::NumParkedCars +
+	                    CCarCtrl::NumMissionCars + CCarCtrl::NumLawEnforcerCars + CCarCtrl::NumRandomCars;
+	const int32 toCome = Max(CCarCtrl::MaxNumberOfCarsInUse - inUse, 0);
+	return pool->GetNoOfFreeSpaces() > toCome + VEHICLE_MARGIN && NumPuppets(false) < pool->GetSize() / 2;
+}
+
+// (a pool nearly full: the farthest uncounted copy of that pool deleted, made again from a later state when there is
+// room, so that the game's pool-full removers never delete the local player's own entities)
+static void
+RelievePool(bool peds)
+{
+	const int32 free = peds ? CPools::GetPedPool()->GetNoOfFreeSpaces() : CPools::GetVehiclePool()->GetNoOfFreeSpaces();
+	if (free >= POOL_RELIEF)
+		return;
+	const CVector here = FindPlayerCoors();
+	CVehicle *mine = FindPlayerVehicle();
+	NetEntity *farthest = nil;
+	float best = -1.0f;
+	for (int32 i = 0; i < RegistrySize(); i++) {
+		NetEntity *ne = RegistryAt(i);
+		EntData *d = Data(ne);
+		if (d == nil || !ne->puppet || d->counted || ne->e->IsPed() != peds || ne->e->bRemoveFromWorld || ne->e == mine)
+			continue;
+		if (peds && ((CPed *)ne->e)->InVehicle() && ((CPed *)ne->e)->m_pMyVehicle == mine)
+			continue;
+		const float dist = (ne->e->GetPosition() - here).MagnitudeSqr();
+		if (dist > best) {
+			best = dist;
+			farthest = ne;
+		}
+	}
+	if (farthest) {
+		stats.relieved++;
+		DeletePuppet(farthest);
+	}
+}
+
 // (a copy made of a state; nil while it cannot be yet)
 static NetEntity *
 MakePuppet(int32 from, const State &s, bool *waiting)
@@ -1387,7 +1489,7 @@ MakePuppet(int32 from, const State &s, bool *waiting)
 		vehicle = (CVehicle *)v;
 	}
 	// (room left for the local population)
-	if (s.kind == KIND_PED ? CPools::GetPedPool()->GetNoOfFreeSpaces() < 12 : CPools::GetVehiclePool()->GetNoOfFreeSpaces() < 12) {
+	if (!PuppetRoom(s.kind == KIND_PED)) {
 		*waiting = true;
 		return nil;
 	}
@@ -1431,15 +1533,25 @@ StorePending(int32 from, const State &s)
 {
 	Pending *p = FindPending(s.netid);
 	if (p == nil) {
-		int32 oldest = -1;
-		for (int32 i = 0; i < MAX_PENDING && p == nil; i++) {
-			if (!pending[i].used)
+		// (the table full: the oldest entry evicted, a far one first, one the server gave us last, told gone then)
+		int32 victim = -1, victimRank = -1;
+		for (int32 i = 0; i < MAX_PENDING; i++) {
+			if (!pending[i].used) {
 				p = &pending[i];
-			else if (oldest < 0 || pending[i].at < pending[oldest].at)
-				oldest = i;
+				break;
+			}
+			const int32 rank = pending[i].owned ? 0 : !InRange(pending[i].st) ? 2 : 1;
+			if (rank > victimRank || (rank == victimRank && pending[i].at < pending[victim].at)) {
+				victim = i;
+				victimRank = rank;
+			}
 		}
-		if (p == nil)
-			p = &pending[oldest];
+		if (p == nil) {
+			p = &pending[victim];
+			if (p->owned)
+				SendGone(p->st.netid, GONE_NOT_HERE);
+			stats.evicted++;
+		}
 		p->owned = false;
 	}
 	p->used = true;
@@ -1824,6 +1936,8 @@ UpkeepPuppets(double now)
 		d->hidden = s.vehicle != 0 && want == nil;
 		PuppetWeapon(ped, s);
 	}
+	RelievePool(true);
+	RelievePool(false);
 }
 
 static void
@@ -2035,7 +2149,20 @@ Entities_PuppetVehicleControl(CVehicle *veh, NetEntity *ne)
 	veh->m_fHealth = s.vhealth;
 	veh->bFadeOut = (s.vflags & VF_FADE) != 0;
 	veh->bRenderScorched = (s.vflags & VF_SCORCHED) != 0;
-	const int32 status = veh->GetStatus() == STATUS_WRECKED ? STATUS_WRECKED : PuppetStatus(s);
+	int32 status = veh->GetStatus() == STATUS_WRECKED ? STATUS_WRECKED : PuppetStatus(s);
+	if (status == STATUS_WRECKED && veh->GetStatus() != STATUS_WRECKED) {
+		// (wrecked by its owner, the copy alive until now: after a short wait for the owner's explosion event (which
+		// wrecks it with its culprit), the combat module's wreck: BlowUpCar's own blast unless the state is old)
+		const double now = Now();
+		if (d->wreckSeen == 0.0)
+			d->wreckSeen = now;
+		if (now - d->wreckSeen < WRECK_WAIT)
+			status = veh->GetStatus();
+		else
+			Combat_WreckPuppet(veh, now - s.at < WRECK_RECENT);
+	} else
+		d->wreckSeen = 0.0;
+	// (the plain wreck when the combat module did not: its weak stub)
 	if (veh->GetStatus() != status) {
 		veh->SetStatus(status);
 		if (status == STATUS_WRECKED) {
@@ -2181,7 +2308,7 @@ PlayerMayEnter(CVehicle *veh)
 	EntData *d = Data(ne);
 	if (d == nil || !ne->puppet)
 		return true;
-	if (d->hasState && (d->st.flags & EF_DRIVEN))
+	if (d->hasState && (d->st.flags & (EF_DRIVEN | EF_MISSION))) // (a remote player's, or a script's car)
 		return false;
 	if (veh->pDriver) {
 		NetEntity *dn = Find(veh->pDriver);
@@ -2246,6 +2373,17 @@ Entities_OnState(int32 from, In &in)
 		d->hasState = true;
 		PushSample(d, s);
 		return;
+	}
+	// (a far state is never made into a copy here: not kept, unless the server gave us that entity: then MakePending
+	// tells it gone)
+	if (!InRange(s)) {
+		Pending *p = FindPending(s.netid);
+		if (p == nil)
+			return;
+		if (!p->owned) {
+			p->used = false;
+			return;
+		}
 	}
 	StorePending(from, s);
 }
@@ -2339,6 +2477,12 @@ Entities_OnOwner(uint32 netid, int32 owner, int32 previous)
 		}
 		if (e->IsPed() && ((CPed *)e)->InVehicle() && ((CPed *)e)->m_pMyVehicle == FindPlayerVehicle() && FindPlayerVehicle()) {
 			ne->owner = (uint8)owner;
+			return;
+		}
+		// (a script's entity is never made a copy here: it would be deleted under the script's handle; it stays ours,
+		// unshared, and the new owner keeps theirs)
+		if (IsMission(e)) {
+			Unshare(ne, d);
 			return;
 		}
 		if (LocalPlayerEntering(e))
@@ -2601,11 +2745,11 @@ Entities_Debug(void)
 	DebugAppend("],\"playerVehicle\":%u", Live() && FindPlayerVehicle() ? NetIdOf(FindPlayerVehicle()) : 0u);
 	DebugAppend(",\"entities\":{\"live\":%s,\"sent\":%u,\"received\":%u,\"created\":%u,\"deleted\":%u,\"gone\":%u,"
 	            "\"migrations\":%u,\"ownerIn\":%u,\"claims\":%u,\"claimsRefused\":%u,\"keeps\":%u,\"refusedSpawns\":%u,"
-	            "\"parkedLinked\":%u,\"orphaned\":%u,\"notHere\":%u,\"rebuilt\":%u,\"pending\":%d,\"pendingModels\":%d,"
-	            "\"counted\":%d,\"gamePeds\":%u,\"gameCars\":%d}",
+	            "\"parkedLinked\":%u,\"orphaned\":%u,\"notHere\":%u,\"rebuilt\":%u,\"relieved\":%u,\"evicted\":%u,"
+	            "\"pending\":%d,\"pendingModels\":%d,\"counted\":%d,\"gamePeds\":%u,\"gameCars\":%d}",
 	            Live() ? "true" : "false", stats.sent, stats.received, stats.created, stats.deleted, stats.gone,
 	            stats.migrations, stats.received_owner, stats.claims, stats.claimsRefused, stats.keeps, stats.refusedSpawns,
-	            stats.parkedLinked, stats.orphaned, stats.notHere, stats.rebuilt, waiting, models, counted,
+	            stats.parkedLinked, stats.orphaned, stats.notHere, stats.rebuilt, stats.relieved, stats.evicted, waiting, models, counted,
 	            CPopulation::ms_nTotalPeds, CCarCtrl::NumRandomCars + CCarCtrl::NumParkedCars);
 }
 }
