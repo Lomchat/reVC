@@ -44,6 +44,7 @@
 #include "PlayerInfo.h"
 #include "PlayerPed.h"
 #include "CivilianPed.h"
+#include "Population.h"
 #include "Wanted.h"
 #include "Vehicle.h"
 #include "WeaponInfo.h"
@@ -112,6 +113,7 @@ struct Remote {
 	uint64 blocks;             // the animation blocks it holds a reference on (bit n: block n)
 	bool tagDrawn;             // its tag drawn at the last Render2d
 	bool visible;
+	bool counted;              // the puppet in the game's ped counters (as its constructor put it)
 	uint32 states;             // states received
 };
 
@@ -227,19 +229,23 @@ ResolveSkin(const char *wanted, Skin *skin)
 	const char *name = wanted && wanted[0] ? wanted : "player";
 	skin->model = -1;
 	skin->female = false;
-	if (!IsSpecialName(name)) {
+	// (a special model only from the lobby's list - the extras directory holds props too (cs_cam, kettle...), not
+	// skinned peds - in the list's own spelling: the special slots' names are compared with case by the streamer)
+	const char *listed = Lobby_SkinModel(name);
+	if (listed == nil || !IsSpecialName(listed)) {
 		int32 mi = -1;
-		CBaseModelInfo *info = CModelInfo::GetModelInfo(name, &mi);
+		CBaseModelInfo *info = IsSpecialName(name) ? nil : CModelInfo::GetModelInfo(name, &mi);
 		if (info && info->GetModelType() == MITYPE_PED && mi != MI_PLAYER && (mi < MI_SPECIAL01 || mi > MI_SPECIAL21)) {
 			const ePedType type = ((CPedModelInfo *)info)->m_pedType;
 			skin->special = false;
 			skin->model = mi;
 			skin->female = type == PEDTYPE_CIVFEMALE || type == PEDTYPE_PROSTITUTE;
-			CopyName(skin->name, name, sizeof(skin->name));
+			CopyName(skin->name, info->GetModelName(), sizeof(skin->name));
 			return;
 		}
-		name = "player";
+		listed = "player";
 	}
+	name = listed;
 	skin->special = true;
 	CopyName(skin->name, name, sizeof(skin->name));
 	for (const char *w : women)
@@ -247,10 +253,12 @@ ResolveSkin(const char *wanted, Skin *skin)
 			skin->female = true;
 }
 
+// (with case, as CStreaming::RequestSpecialModel compares: a slot shared under another spelling would be renamed and
+// its model removed under the puppet wearing it)
 static bool
 SpecialHolds(int32 i, const char *name)
 {
-	return SameName(CModelInfo::GetModelInfo(MI_SPECIAL01 + i)->GetModelName(), name);
+	return strcmp(CModelInfo::GetModelInfo(MI_SPECIAL01 + i)->GetModelName(), name) == 0;
 }
 
 // (a special slot for this skin: one already wearing it, else a free one - from MI_SPECIAL21 down, the scripts taking
@@ -259,7 +267,7 @@ static int32
 TakeSpecial(const char *name)
 {
 	for (int32 i = NUM_SPECIAL - 1; i >= 0; i--)
-		if (specials[i].name[0] && SameName(specials[i].name, name) && SpecialHolds(i, name)) {
+		if (specials[i].name[0] && strcmp(specials[i].name, name) == 0 && SpecialHolds(i, name)) {
 			specials[i].refs++;
 			return i;
 		}
@@ -277,13 +285,25 @@ TakeSpecial(const char *name)
 	return -1;
 }
 
+// (no puppet wears it any more: the DONT_REMOVE of TakeSpecial / SkinReady taken back - SetMissionDoesntRequire*
+// clears only a script's flag -, the streamer free to drop the model and its TXD; a slot renamed since is not ours)
+static void
+UnpinSpecial(int32 i)
+{
+	if (specials[i].name[0] == '\0' || !SpecialHolds(i, specials[i].name))
+		return;
+	CStreaming::SetModelIsDeletable(MI_SPECIAL01 + i);
+	if (CModelInfo::GetModelInfo(MI_SPECIAL01 + i)->GetTxdSlot() >= 0)
+		CStreaming::SetModelTxdIsDeletable(MI_SPECIAL01 + i);
+}
+
 static void
 ReleaseSpecial(int32 i)
 {
 	if (i < 0 || i >= NUM_SPECIAL || specials[i].refs <= 0)
 		return;
 	if (--specials[i].refs == 0)
-		CStreaming::SetMissionDoesntRequireSpecialChar(i);
+		UnpinSpecial(i);
 }
 
 // ---------------------------------------------------------------- the states read and written
@@ -563,6 +583,7 @@ ClearRecord(Remote &r)
 	r.blocks = 0;
 	r.tagDrawn = false;
 	r.visible = false;
+	r.counted = false;
 	r.states = 0;
 }
 
@@ -590,6 +611,8 @@ Players_OnState(int32 from, In &in)
 	Sample smp;
 	uint32 time = 0;
 	const bool full = ReadState(in, smp.s, &time);
+	if (!PositionInWorld(smp.s.pos)) // (NaN or out of the world: never a puppet's place - the sectors are indexed by it)
+		return;
 	const double now = Now();
 	double age = 0.0;
 	if (full) {
@@ -651,6 +674,8 @@ StateAt(const Remote &r, double t, CVector *pos, float *heading, const PlayerSta
 	const double ahead = Min(t - last.t, EXTRAPOLATE_MS);
 	const bool still = (last.s.flags & PF_DEAD) != 0;
 	*pos = still ? last.s.pos : last.s.pos + last.s.velocity * (float)(ahead / 1000.0);
+	if (!PositionInWorld(*pos)) // (carried on out of the world: kept at the last state)
+		*pos = last.s.pos;
 	*heading = last.s.heading;
 	*since = t - last.t;
 	return &last.s;
@@ -835,6 +860,17 @@ ClearCollision(CPed *ped)
 	ped->m_nDamagePieceType = 0;
 }
 
+// (the entities module's rule: a puppet counts as an ambient ped only inside the local population's radius - a player
+// farther away does not starve our own streets; counted again before it is deleted, the destructor uncounting it)
+static void
+SetCounted(Remote &r, CPed *ped, bool counted)
+{
+	if (r.counted == counted)
+		return;
+	r.counted = counted;
+	CPopulation::UpdatePedCount((ePedType)ped->m_nPedType, !counted);
+}
+
 static void
 Unseat(Remote &r, CPed *ped)
 {
@@ -870,9 +906,13 @@ Seat(Remote &r, CPed *ped, CVehicle *veh, int32 seat)
 			return false;
 		veh->SetDriver(ped);
 	} else {
+		// (put in seat n by hand: AddPassenger takes a bus's first free seat whatever n - the check above would fail at
+		// every frame -, and its turn force is the vehicle owner's to give)
 		const int32 n = seat - 1;
-		if (n >= veh->m_nNumMaxPassengers || veh->pPassengers[n] != nil || !veh->AddPassenger(ped, n))
+		if (n >= veh->m_nNumMaxPassengers || n >= (int32)ARRAY_SIZE(veh->pPassengers) || veh->pPassengers[n] != nil)
 			return false;
+		veh->pPassengers[n] = ped;
+		veh->m_nNumPassengers++;
 	}
 	ped->m_pMyVehicle = veh;
 	veh->RegisterReference((CEntity **)&ped->m_pMyVehicle);
@@ -900,6 +940,7 @@ ForgetPuppet(int32 slot, Remote &r)
 	r.vehicle = nil;
 	r.seat = -1;
 	r.visible = false;
+	r.counted = false;
 	RemotePlayer *p = Player(slot);
 	if (p && (p->puppet == r.ped || r.ped == nil))
 		p->puppet = nil;
@@ -920,6 +961,7 @@ DeletePuppet(int32 slot, Remote &r)
 		RemotePlayer *p = Player(slot);
 		if (p && p->puppet == ped)
 			p->puppet = nil;
+		SetCounted(r, ped, true);
 		CWorld::Remove(ped);
 		CWorld::RemoveReferencesToDeletedObject(ped);
 		delete ped;
@@ -1004,6 +1046,7 @@ CreatePuppet(int32 slot, Remote &r, const Skin &skin, int32 model, int32 special
 	r.dead = false;
 	r.seat = -1;
 	r.vehicle = nil;
+	r.counted = true; // (by CPed's constructor; ApplyState applies the rule)
 	if (RemotePlayer *p = Player(slot))
 		p->puppet = ped;
 	debug("Orthros MMO: puppet of player %d (%s), model %d\n", slot, skin.name, model);
@@ -1130,6 +1173,7 @@ ApplyState(int32 slot, Remote &r, CPed *ped, double now)
 	ped->bUsesCollision = sameArea && !ped->bInVehicle && !r.dead;
 	ped->bRenderPedInCar = true;
 	ClearCollision(ped);
+	SetCounted(r, ped, Entities_InsideLocalPopulation(ped));
 
 	ApplyWeapon(r, ped, *s);
 	MirrorAnims(r, ped, *s, next, f, since);
@@ -1342,11 +1386,15 @@ Players_GameLoaded(void)
 		r.skin[0] = '\0';
 		r.weapon = -1;
 		r.seat = -1;
+		r.counted = false;
 		pendingSkin[i].special = -1;
 		pendingSkin[i].name[0] = '\0';
 		if (RemotePlayer *p = Player(i))
 			p->puppet = nil;
 	}
+	for (int32 i = 0; i < NUM_SPECIAL; i++)
+		if (specials[i].refs > 0)
+			UnpinSpecial(i);
 	memset(specials, 0, sizeof(specials));
 	memset(&local, 0, sizeof(local));
 	local.previousArea = CGame::currArea;
@@ -1436,6 +1484,7 @@ Players_EntityDestroyed(CEntity *e, NetEntity *ne)
 		Remote &r = remotes[i];
 		if (r.ped != (CPed *)e)
 			continue;
+		SetCounted(r, r.ped, true); // (~CPed uncounts it next)
 		r.ped = nil; // (its reference left for ~CEntity, which frees it)
 		ReleaseBlocks(r);
 		ForgetPuppet(i, r);

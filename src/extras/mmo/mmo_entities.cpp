@@ -1054,6 +1054,12 @@ InsideLocalPopulation(CEntity *e)
 	return d < 120.0f * TheCamera.GenerationDistMultiplier * (((CVehicle *)e)->bExtendedRange ? 1.5f : 1.0f);
 }
 
+bool
+Entities_InsideLocalPopulation(CEntity *e)
+{
+	return InsideLocalPopulation(e);
+}
+
 static int32
 DoorNode(int32 door)
 {

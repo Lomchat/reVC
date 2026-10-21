@@ -94,6 +94,13 @@ SkinIndex(const char *model)
 	return -1;
 }
 
+const char *
+Lobby_SkinModel(const char *model)
+{
+	const int32 i = model ? SkinIndex(model) : -1;
+	return i < 0 ? nil : skins[i].model;
+}
+
 static int32
 NextSkin(int32 i, int32 step)
 {

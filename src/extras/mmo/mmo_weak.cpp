@@ -158,6 +158,7 @@ WEAK void Lobby_ScreenChanged(int32) {}
 WEAK void Lobby_DrawFrontend(int32) {}
 WEAK bool Lobby_TestCommand(const char *) { return false; }
 WEAK void Lobby_Debug(void) {}
+WEAK const char *Lobby_SkinModel(const char *) { return nil; }
 
 WEAK void Players_OnState(int32, In &) {}
 WEAK void Players_Joined(int32) {}
@@ -190,6 +191,7 @@ WEAK bool Entities_PuppetPedControl(CPed *, NetEntity *) { return false; }
 WEAK bool Entities_PuppetVehicleControl(CVehicle *, NetEntity *) { return false; }
 WEAK void Entities_EntityDestroyed(CEntity *, NetEntity *) {}
 WEAK void Entities_Debug(void) {}
+WEAK bool Entities_InsideLocalPopulation(CEntity *) { return true; }
 
 WEAK void Combat_PreWorld(void) {}
 WEAK void Combat_PostWorld(void) {}
