@@ -248,9 +248,13 @@ ValidName(const char *name)
 	const int32 n = (int32)strlen(name);
 	if (n < 2 || n > NAME_MAX)
 		return false;
-	for (int32 i = 0; i < n; i++)
+	for (int32 i = 0; i < n; i++) {
 		if (!NameCharOk(name[i], i == 0))
 			return false;
+		// (as the server's rule: a separator only between two letters or digits)
+		if (!NameCharOk(name[i], true) && (i + 1 >= n || !NameCharOk(name[i + 1], true)))
+			return false;
+	}
 	return true;
 }
 
