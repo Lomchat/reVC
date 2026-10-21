@@ -14,7 +14,9 @@
 //            0x22 tyre         u32 attacker, u8 wheel (CAR_PIECE_WHEEL_*), u32 server ms
 //            0x23 impulse      u32 attacker, f32 impulse, u16 piece, u32 server ms (melee on a car)
 //            0x24 knock off    u32 attacker, u8 weapon, u8 direction, u32 server ms (a rider off his bike)
-//            0x25 car hit      u32 car, f32 impulse, f32x3 car speed, u32 server ms (a ped run over)
+//            0x25 car hit      u32 car, f32 impulse, f32x3 car speed, u32 server ms, f32 damage normal z (a ped run over)
+//            0x26 pickup claim (target: the pickup's id, to its maker; no body)
+//            0x27 pickup answer  u32 pickup id, u8 granted (to the claiming player: paid if granted, its copy removed)
 //   EVENT    0x20 shot         u32 shooter, u8 weapon, u8 flags (1 muzzle), f32x3 start, f32x3 end
 //            0x21 sniper       u32 shooter, u8 weapon, f32x3 position, f32x3 speed
 //            0x22 flame        u32 shooter, f32x3 start, f32x3 end
@@ -26,6 +28,9 @@
 //            0x28 pickup taken u8 kind: 0 u32 id (one made by a client); 1 u16 index, u16 model, f32x3 position (the
 //                              save's own, the same index everywhere)
 //            0x29 melee swing  u32 shooter, u8 weapon
+// A pickup made by a client is its maker's: the maker collects it at once; another client touching its copy claims it
+// and is paid only when the maker grants it (the first claim; later ones refused).
+// Every position, speed and size from the wire is checked (finite, in the world, bounded) before the game sees it.
 #include "common.h"
 
 #ifdef ORTHROS_EXTRAS
@@ -72,6 +77,7 @@ namespace OrthrosMmo
 // ---------------------------------------------------------------- the records
 enum {
 	TG_PED_DAMAGE = SUB_COMBAT, TG_VEHICLE_DAMAGE, TG_TYRE, TG_VEHICLE_IMPULSE, TG_KNOCK_OFF, TG_CAR_HIT,
+	TG_PICKUP_CLAIM, TG_PICKUP_ANSWER,
 };
 enum {
 	EV_SHOT = SUB_COMBAT, EV_SNIPER, EV_FLAME, EV_PROJECTILE, EV_PROJECTILE_GONE, EV_EXPLOSION, EV_DEATH,
@@ -87,6 +93,12 @@ enum {
 	SHOTS_PER_SECOND = 40, // (traces, sniper bullets, flames told at most this often)
 	DEATH_MEMORY = 30000,  // (ms: the last network hit names the killer for this long)
 	PENDING_PICKUPS = 16,
+	CLAIM_TIMEOUT = 5000,  // (ms: a claim its maker never answered - gone, a link reset - drops the copy, unpaid)
+	MAX_LIFETIME = 5000,   // (ms: a blast's delay; the game's own are 0 or about 100)
+	MAX_MONEY = 5000,      // (a dead ped's money pickup; the ammo of a weapon one)
+	MAX_AMMO = 9999,
+	CAR_HIT_MEMORY = 8,    // (victims of our cars' hits, each told at most once a second)
+	CAR_HIT_INTERVAL = 1000,
 };
 
 // ---------------------------------------------------------------- state
@@ -98,8 +110,9 @@ static bool bMakingProjectile; // (AddProjectile called for a remote one)
 static uint8 makingFrom;
 static uint32 makingId;
 
-// (pickups made by a client, by their slot in CPickups::aPickUps: its id and handle)
-struct PickupSlot { uint32 id; int32 handle; };
+// (pickups made by a client, by their slot in CPickups::aPickUps: its id and handle; a copy of another client's, and
+// when it was claimed from its maker - 0 not yet)
+struct PickupSlot { uint32 id; int32 handle; bool remote; double claimedAt; };
 static PickupSlot pickups[NUMPICKUPS];
 static bool bMakingPickup;
 struct PendingPickup { bool used; uint32 id; int16 model; uint8 type; uint32 quantity; CVector pos; double until; };
@@ -108,8 +121,13 @@ static PendingPickup pendingPickups[PENDING_PICKUPS];
 // (the last network hit applied to the local player: the killer if it dies of it)
 static struct { uint32 attacker; int32 weapon; CEntity *culprit; double at; } lastHit;
 static bool bDeathTold;
+static bool bLastDamageNet; // (the local player's last damage was a network hit's)
 static bool bApplying;  // (a remote hit being applied here: the hooks let it through)
 static bool bWrecking;  // (a puppet vehicle blown up as its owner's was: its occupants are not killed here)
+
+// (the victims our cars' hits were told for, and when; the last car hit applied to the local player)
+static struct { uint32 victim; double at; } carHits[CAR_HIT_MEMORY];
+static double lastCarHitOnMe;
 
 // (the shots' budget, the last shooter of a muzzle flash)
 static double shotWindow;
@@ -221,6 +239,57 @@ ShotBudget(void)
 		shotsInWindow = 0;
 	}
 	return shotsInWindow++ < SHOTS_PER_SECOND;
+}
+
+// (a position from the wire: finite, in the world's sectors or near them)
+static bool
+InWorld(const CVector &v)
+{
+	return v.x >= WORLD_MIN_X - 1000.0f && v.x <= WORLD_MAX_X + 1000.0f && v.y >= WORLD_MIN_Y - 1000.0f &&
+	       v.y <= WORLD_MAX_Y + 1000.0f && v.z >= MAP_Z_LOW_LIMIT - 100.0f && v.z <= 3000.0f;
+}
+
+// (a speed or a direction from the wire: finite, each part within max)
+static bool
+Bounded(const CVector &v, float max)
+{
+	return Abs(v.x) <= max && Abs(v.y) <= max && Abs(v.z) <= max;
+}
+
+// (the local player away: the pause menu open. Nothing hurts him or what he is in meanwhile)
+static bool
+Away(void)
+{
+	return FrontEndMenuManager.m_bMenuActive;
+}
+
+// (a vehicle carrying a remote player who is away: not hurt by us meanwhile)
+static bool
+AwayAboard(const CVehicle *veh)
+{
+	for (int32 i = -1; i < veh->m_nNumMaxPassengers && i < (int32)ARRAY_SIZE(veh->pPassengers); i++) {
+		const CPed *ped = i < 0 ? veh->pDriver : veh->pPassengers[i];
+		const NetEntity *ne = ped ? Find(ped) : nil;
+		const RemotePlayer *p = ne && ne->puppet && ne->player >= 0 ? Player(ne->player) : nil;
+		if (p && p->away)
+			return true;
+	}
+	return false;
+}
+
+// (a vehicle the local player is in)
+static bool
+CarryingMe(const CVehicle *veh)
+{
+	const CPlayerPed *me = FindPlayerPed();
+	if (me == nil)
+		return false;
+	if (veh == FindPlayerVehicle() || veh->pDriver == me)
+		return true;
+	for (int32 i = 0; i < veh->m_nNumMaxPassengers && i < (int32)ARRAY_SIZE(veh->pPassengers); i++)
+		if (veh->pPassengers[i] == me)
+			return true;
+	return false;
 }
 
 // (hits sent as they are: bullets, pellets, melee, sniper bullets, drive-bys, the helicopters' guns. Not the hits the
@@ -403,7 +472,7 @@ ApplyPedHit(CPed *victim, CEntity *culprit, int32 method, float damage, int32 pi
 }
 
 // (the victim's entity here, ours to apply to: the local player, or an entity we own; nil otherwise. The local player is
-// not hurt while away - the pause menu open)
+// not hurt while away - the pause menu open -, nor the vehicle he is in)
 static CEntity *
 OwnVictim(uint32 target)
 {
@@ -411,12 +480,16 @@ OwnVictim(uint32 target)
 		if (SlotOfNetId(target) != LocalSlot())
 			return nil;
 		CPlayerPed *ped = FindPlayerPed();
-		if (ped == nil || FrontEndMenuManager.m_bMenuActive)
+		if (ped == nil || Away())
 			return nil;
 		return ped;
 	}
 	CEntity *e = EntityOf(target);
-	return e && !IsPuppet(e) ? e : nil;
+	if (e == nil || IsPuppet(e))
+		return nil;
+	if (Away() && e->IsVehicle() && CarryingMe((CVehicle *)e))
+		return nil;
+	return e;
 }
 
 static void
@@ -481,11 +554,17 @@ OnVehicleDamage(uint32 target, int32 sub, In &in)
 		const float damage = in.F32();
 		const CVector pos = in.Vec();
 		const uint32 stamp = in.U32();
-		if (!in.Ok() || veh == nil || Age(stamp) > STALE_HIT || !(damage >= 0.0f && damage <= 5000.0f))
+		if (!in.Ok() || veh == nil || Age(stamp) > STALE_HIT || !(damage >= 0.0f && damage <= 5000.0f) || !InWorld(pos))
 			break;
+		// (a player's shot bursts no tyre by chance - a player's accuracy is 0 with the mouse aim: the shooter sends
+		// the wheels it hit, TG_TYRE - only an AI's does)
+		const bool tyresDontBurst = veh->bTyresDontBurst;
+		if (IsPlayerNetId(attacker))
+			veh->bTyresDontBurst = true;
 		bApplying = true;
 		veh->InflictDamage(Culprit(attacker), (eWeaponType)weapon, damage, pos);
 		bApplying = false;
+		veh->bTyresDontBurst = tyresDontBurst;
 		hits.applied++;
 		return;
 	}
@@ -549,7 +628,8 @@ OnKnockOff(uint32 target, In &in)
 }
 
 // (a car of another client's ran into one of ours: the local player as its own collisions with a car do it - a fall and
-// 20 -, another ped as the game's KillPedWithCar does)
+// 20 - when the hit is one that hurts a player in KillPedWithCar - a hard one, or from above -, at most once a second;
+// another ped as the game's KillPedWithCar does)
 static void
 OnCarHit(uint32 target, In &in)
 {
@@ -557,9 +637,11 @@ OnCarHit(uint32 target, In &in)
 	const float impulse = in.F32();
 	const CVector speed = in.Vec();
 	const uint32 stamp = in.U32();
+	const float normalZ = in.F32();
 	hits.received++;
 	CEntity *e = OwnVictim(target);
-	if (!in.Ok() || e == nil || !e->IsPed() || Age(stamp) > STALE_HIT || !(impulse >= 0.0f && impulse < 100000.0f)) {
+	if (!in.Ok() || e == nil || !e->IsPed() || Age(stamp) > STALE_HIT || !(impulse >= 0.0f && impulse < 100000.0f) ||
+	    !Bounded(speed, 100.0f) || !(normalZ >= -1.01f && normalZ <= 1.01f)) {
 		hits.dropped++;
 		return;
 	}
@@ -569,6 +651,14 @@ OnCarHit(uint32 target, In &in)
 	if (victim->bInVehicle || victim->DyingOrDead()) {
 		hits.dropped++;
 		return;
+	}
+	if (victim == FindPlayerPed()) {
+		const double now = Now();
+		if (!(impulse > 10.0f || (normalZ < -0.8f && impulse > 3.0f)) || now - lastCarHitOnMe < CAR_HIT_INTERVAL) {
+			hits.dropped++;
+			return;
+		}
+		lastCarHitOnMe = now;
 	}
 	bApplying = true;
 	if (victim == FindPlayerPed() || car == nil) {
@@ -663,7 +753,7 @@ OnShot(In &in)
 	const uint32 shooterId = in.U32();
 	const int32 weapon = in.U8(), flags = in.U8();
 	CVector start = in.Vec(), end = in.Vec();
-	if (!in.Ok() || weapon >= WEAPONTYPE_TOTALWEAPONS)
+	if (!in.Ok() || weapon >= WEAPONTYPE_TOTALWEAPONS || !InWorld(start) || !InWorld(end))
 		return;
 	CEntity *shooter = Culprit(shooterId);
 	const bool wasReplaying = bReplaying;
@@ -683,7 +773,9 @@ OnSniper(In &in)
 	const uint32 shooterId = in.U32();
 	const int32 weapon = in.U8();
 	const CVector pos = in.Vec(), speed = in.Vec();
-	if (!in.Ok() || speed.MagnitudeSqr() < 0.0001f)
+	// (the sniper bullets only, CBulletInfo's: the range the weapon's own)
+	if (!in.Ok() || (weapon != WEAPONTYPE_SNIPERRIFLE && weapon != WEAPONTYPE_LASERSCOPE) || !InWorld(pos) ||
+	    !Bounded(speed, 1000.0f) || speed.MagnitudeSqr() < 0.0001f)
 		return;
 	CEntity *shooter = Culprit(shooterId);
 	CVector dir = speed;
@@ -711,7 +803,8 @@ OnFlame(In &in)
 {
 	const uint32 shooterId = in.U32();
 	const CVector start = in.Vec(), end = in.Vec();
-	if (!in.Ok())
+	// (none while the local player is away: its shot would wait for the game to resume and set him on fire then)
+	if (!in.Ok() || !InWorld(start) || !InWorld(end) || (end - start).MagnitudeSqr() > 100.0f * 100.0f || Away())
 		return;
 	CEntity *shooter = Culprit(shooterId);
 	CVector dir = end - start;
@@ -788,7 +881,8 @@ OnProjectile(int32 from, In &in)
 	const uint32 shooterId = in.U32(), id = in.U32();
 	const int32 weapon = in.U8();
 	const CVector pos = in.Vec(), forward = in.Vec(), up = in.Vec(), velocity = in.Vec();
-	if (!in.Ok() || RemoteProjectile(from, id) >= 0)
+	if (!in.Ok() || RemoteProjectile(from, id) >= 0 || !InWorld(pos) || !Bounded(forward, 2.0f) || !Bounded(up, 2.0f) ||
+	    !Bounded(velocity, 50.0f))
 		return;
 	if (weapon != WEAPONTYPE_GRENADE && weapon != WEAPONTYPE_MOLOTOV && weapon != WEAPONTYPE_TEARGAS && weapon != WEAPONTYPE_ROCKET)
 		return;
@@ -889,7 +983,8 @@ OnExplosion(In &in)
 	const CVector pos = in.Vec();
 	const uint32 lifetime = in.U32();
 	const uint32 stamp = in.U32();
-	if (!in.Ok() || type > EXPLOSION_HELI_BOMB)
+	// (a long delay would hold one of gaExplosion's slots for days: a few of them and no blast goes off anywhere)
+	if (!in.Ok() || type > EXPLOSION_HELI_BOMB || lifetime > MAX_LIFETIME || !InWorld(pos))
 		return;
 	lastBlast.age = Age(stamp);
 	lastBlast.type = type;
@@ -897,16 +992,20 @@ OnExplosion(In &in)
 	lastBlast.replayed = false;
 	if (Age(stamp) > STALE_EFFECT)
 		return;
-	lastBlast.replayed = true;
-	CEntity *culprit = Culprit(culpritId);
+	// (the culprit as it is here: the local player stays the creator of a blast he caused - his credit, his wanted level)
+	CEntity *culprit = EntityOf(culpritId);
 	CEntity *exploding = Culprit(explodingId);
-	// (a vehicle's blast: its copy here blows up with it)
+	// (a vehicle's blast: its copy here blows up with it. While the local player is away, only its look: no blast)
 	if (exploding && exploding->IsVehicle() && IsPuppet(exploding) && ((CVehicle *)exploding)->GetStatus() != STATUS_WRECKED &&
 	    (type == EXPLOSION_CAR || type == EXPLOSION_CAR_QUICK || type == EXPLOSION_BOAT || type == EXPLOSION_HELI || type == EXPLOSION_HELI2) &&
 	    (exploding->GetPosition() - pos).MagnitudeSqr() < 25.0f * 25.0f) {
-		Wreck((CVehicle *)exploding, culprit, true);
+		lastBlast.replayed = !Away();
+		Wreck((CVehicle *)exploding, culprit, !Away());
 		return;
 	}
+	if (Away())
+		return;
+	lastBlast.replayed = true;
 	const bool wasReplaying = bReplaying;
 	bReplaying = true;
 	CExplosion::AddExplosion(exploding, culprit, (eExplosionType)type, pos, lifetime);
@@ -945,8 +1044,9 @@ TellDeath(void)
 	CPlayerPed *ped = FindPlayerPed();
 	uint32 killer = 0;
 	int32 weapon = ped->m_lastWepDam;
+	// (the network hit names the killer only if it was the last damage: applied last, or its culprit the game's record)
 	const bool recent = lastHit.attacker != 0 && Now() - lastHit.at < DEATH_MEMORY;
-	if (recent && (ped->m_lastDamEntity == lastHit.culprit || ped->m_lastDamEntity == nil)) {
+	if (recent && (bLastDamageNet || (lastHit.culprit != nil && ped->m_lastDamEntity == lastHit.culprit))) {
 		killer = lastHit.attacker;
 		weapon = lastHit.weapon;
 	} else if (Live(ped->m_lastDamEntity))
@@ -1020,6 +1120,26 @@ MakeRemotePickup(uint32 id, int32 model, int32 type, uint32 quantity, const CVec
 		return;
 	pickups[slot].id = id;
 	pickups[slot].handle = handle;
+	pickups[slot].remote = true;
+	pickups[slot].claimedAt = 0.0;
+}
+
+// (what a dead ped drops, the only pickups told: its money, its weapons - or the health, armour, adrenaline ones -
+// with their ammo. Anything else - a building's or a car's model - would be read as a weapon when collected)
+static bool
+PickupValid(int32 model, int32 type, uint32 quantity)
+{
+	if (type == PICKUP_MONEY)
+		return model == MI_MONEY && quantity <= MAX_MONEY;
+	if (type != PICKUP_ONCE_TIMEOUT || quantity > MAX_AMMO)
+		return false;
+	if (model == MI_PICKUP_HEALTH || model == MI_PICKUP_BODYARMOUR || model == MI_PICKUP_ADRENALINE)
+		return true;
+	if (model < 0 || model >= MODELINFOSIZE || CModelInfo::GetModelInfo(model) == nil ||
+	    CModelInfo::GetModelInfo(model)->GetModelType() != MITYPE_WEAPON)
+		return false;
+	const int32 weapon = ((CWeaponModelInfo *)CModelInfo::GetModelInfo(model))->GetWeaponInfo();
+	return weapon > WEAPONTYPE_UNARMED && weapon < WEAPONTYPE_TOTALWEAPONS;
 }
 
 static void
@@ -1029,8 +1149,11 @@ OnPickupMade(In &in)
 	const int32 model = in.U16(), type = in.U8();
 	const uint32 quantity = in.U32();
 	const CVector pos = in.Vec();
-	if (!in.Ok() || id == 0 || (type != PICKUP_ONCE_TIMEOUT && type != PICKUP_MONEY))
+	if (!in.Ok() || id == 0 || !PickupValid(model, type, quantity) || !InWorld(pos))
 		return;
+	for (int32 slot = 0; slot < NUMPICKUPS; slot++)
+		if (pickups[slot].id == id)
+			return;
 	if (PickupModelReady(model)) {
 		MakeRemotePickup(id, model, type, quantity, pos);
 		return;
@@ -1079,7 +1202,7 @@ OnPickupTaken(In &in)
 			if (pendingPickups[i].used && pendingPickups[i].id == id)
 				pendingPickups[i].used = false;
 		for (int32 slot = 0; slot < NUMPICKUPS; slot++)
-			if (pickups[slot].id == id) {
+			if (pickups[slot].id == id && pickups[slot].claimedAt == 0.0) { // (claimed: its answer settles it)
 				if (PickupCurrent(slot))
 					CPickups::RemovePickUp(pickups[slot].handle);
 				pickups[slot].id = 0;
@@ -1088,7 +1211,7 @@ OnPickupTaken(In &in)
 	}
 	const int32 slot = in.U16(), model = in.U16();
 	const CVector pos = in.Vec();
-	if (!in.Ok() || slot >= NUMPICKUPS)
+	if (!in.Ok() || slot >= NUMPICKUPS || PickupCurrent(slot)) // (a client's pickup is never one of the save's)
 		return;
 	CPickup &p = CPickups::aPickUps[slot];
 	if (p.m_bRemoved || p.m_eModelIndex != model || (p.m_vecPos - pos).MagnitudeSqr() > 1.0f)
@@ -1117,6 +1240,115 @@ OnPickupTaken(In &in)
 	}
 }
 
+// ---------------------------------------------------------------- pickups: claims (a client's pickup is its maker's)
+// (a slot's pickup still there to be collected)
+static bool
+PickupLive(int32 slot)
+{
+	const CPickup &p = CPickups::aPickUps[slot];
+	return PickupCurrent(slot) && p.m_eType != PICKUP_NONE && !p.m_bRemoved;
+}
+
+static void
+DropPickup(int32 slot)
+{
+	if (PickupCurrent(slot))
+		CPickups::RemovePickUp(pickups[slot].handle);
+	pickups[slot].id = 0;
+	pickups[slot].remote = false;
+	pickups[slot].claimedAt = 0.0;
+}
+
+// (a copy granted to the local player: what CPickup::Update pays for it - the money, the goodies, the weapon or its
+// ammo)
+static void
+PayPickup(int32 slot)
+{
+	CPickup &p = CPickups::aPickUps[slot];
+	CPlayerPed *player = FindPlayerPed();
+	if (player == nil || !PickupLive(slot) || !PickupValid(p.m_eModelIndex, p.m_eType, p.m_nQuantity))
+		return;
+	if (p.m_eType == PICKUP_MONEY) {
+		CWorld::Players[CWorld::PlayerInFocus].m_nMoney += p.m_nQuantity;
+		DMAudio.PlayFrontEndSound(SOUND_PICKUP_MONEY, 0);
+		player->Say(SOUND_PED_MUGGING);
+		return;
+	}
+	if (CPickups::GivePlayerGoodiesWithPickUpMI(p.m_eModelIndex, 0))
+		return;
+	const eWeaponType weapon = CPickups::WeaponForModel(p.m_eModelIndex);
+	const uint32 ammo = p.m_nQuantity != 0 ? p.m_nQuantity : (p.m_bWasAmmoCollected ? 0 : AmmoForWeapon[weapon]);
+	if (!player->DoesPlayerWantNewWeapon(weapon, false)) {
+		if (CWeaponInfo::IsWeaponSlotAmmoMergeable(CWeaponInfo::GetWeaponInfo(weapon)->m_nWeaponSlot) && ammo != 0)
+			player->GrantAmmo(weapon, ammo);
+		return;
+	}
+	player->GiveWeapon(weapon, ammo, true);
+	if (player->m_nSelectedWepSlot == player->GetWeaponSlot(WEAPONTYPE_UNARMED))
+		player->m_nSelectedWepSlot = player->GetWeaponSlot(weapon);
+	DMAudio.PlayFrontEndSound(SOUND_PICKUP_WEAPON, p.m_eModelIndex - MI_GRENADE);
+}
+
+// (another player claims one of ours: the first one near it gets it - our copy removed, the others told it is taken -,
+// later ones are refused)
+static void
+OnPickupClaim(int32 from, uint32 id)
+{
+	const RemotePlayer *claimer = from != LocalSlot() ? Player(from) : nil;
+	if (claimer == nil || id == 0)
+		return;
+	bool granted = false;
+	for (int32 slot = 0; slot < NUMPICKUPS; slot++) {
+		if (pickups[slot].id != id || pickups[slot].remote)
+			continue;
+		granted = PickupLive(slot) && claimer->hasState &&
+		          (claimer->pos - CPickups::aPickUps[slot].m_vecPos).MagnitudeSqr() < 15.0f * 15.0f;
+		if (granted)
+			DropPickup(slot);
+		break;
+	}
+	{
+		Out o(R_TARGETED);
+		Targeted(PlayerNetId(from), TG_PICKUP_ANSWER, o);
+		o.U32(id);
+		o.U8(granted ? 1 : 0);
+	}
+	if (granted) {
+		Out o(R_EVENT);
+		o.U8(EV_PICKUP_TAKEN);
+		o.U8(0);
+		o.U32(id);
+		eventsSent++;
+	}
+}
+
+// (the maker's answer to our claim: paid if granted; the copy goes either way)
+static void
+OnPickupAnswer(In &in)
+{
+	const uint32 id = in.U32();
+	const bool granted = in.U8() != 0;
+	if (!in.Ok() || id == 0)
+		return;
+	for (int32 slot = 0; slot < NUMPICKUPS; slot++)
+		if (pickups[slot].id == id && pickups[slot].remote && pickups[slot].claimedAt != 0.0) {
+			if (granted)
+				PayPickup(slot);
+			DropPickup(slot);
+		}
+}
+
+// (claims never answered - the maker gone, the link reset -: the copy dropped, unpaid)
+static void
+ExpireClaims(void)
+{
+	const double now = Now();
+	for (int32 slot = 0; slot < NUMPICKUPS; slot++)
+		if (pickups[slot].id != 0 && pickups[slot].remote && pickups[slot].claimedAt != 0.0 &&
+		    now - pickups[slot].claimedAt > CLAIM_TIMEOUT)
+			DropPickup(slot);
+}
+
 // ---------------------------------------------------------------- the game's hooks (mmo.h)
 bool
 PedDamage(CPed *victim, CEntity *damagedBy, int32 method, float damage, int32 pedPiece, uint8 direction, bool *result)
@@ -1124,12 +1356,15 @@ PedDamage(CPed *victim, CEntity *damagedBy, int32 method, float damage, int32 pe
 	if (Mode() == MODE_OFF)
 		return false;
 	if (!IsPuppet(victim)) {
-		// (ours run into by another client's car: that car's owner tells it - TG_CAR_HIT)
-		if (!bApplying && damagedBy && damagedBy->IsVehicle() && IsPuppet(damagedBy) &&
+		// (ours run into by another client's car, on foot: that car's owner tells it - TG_CAR_HIT. A rider thrown off
+		// his bike by a crash into it is hurt here: CBike::VehicleDamage, nobody tells it)
+		if (!bApplying && !victim->bInVehicle && damagedBy && damagedBy->IsVehicle() && IsPuppet(damagedBy) &&
 		    (method == WEAPONTYPE_RAMMEDBYCAR || method == WEAPONTYPE_RUNOVERBYCAR)) {
 			*result = false;
 			return true;
 		}
+		if (victim == FindPlayerPed())
+			bLastDamageNet = bApplying;
 		return false;
 	}
 	*result = false;
@@ -1144,22 +1379,31 @@ PedHitByCar(CPed *victim, CVehicle *car, float impulse)
 	if (Mode() == MODE_OFF)
 		return false;
 	if (IsPuppet(victim)) {
-		static const CPed *hitVictim;
-		static double lastAt;
 		const double now = Now();
-		if (!bReplaying && Playing() && Local(car) && impulse > 3.0f && !victim->DyingOrDead() &&
-		    (victim != hitVictim || now - lastAt > 1000.0)) {
+		if (!bReplaying && Playing() && Local(car) && impulse > 3.0f && !victim->DyingOrDead()) {
 			const uint32 target = IdOf(victim);
 			const RemotePlayer *p = IsPlayerNetId(target) ? Player(SlotOfNetId(target)) : nil;
-			if (target != 0 && (!IsPlayerNetId(target) || (p && !p->away))) {
-				hitVictim = victim;
-				lastAt = now;
+			// (each victim told at most once a second: the game calls this every frame of contact, for each ped)
+			int32 slot = -1, oldest = 0;
+			for (int32 i = 0; i < CAR_HIT_MEMORY && slot < 0; i++) {
+				if (carHits[i].victim == target)
+					slot = i;
+				else if (carHits[i].at < carHits[oldest].at)
+					oldest = i;
+			}
+			const bool recent = slot >= 0 && now - carHits[slot].at < CAR_HIT_INTERVAL;
+			if (target != 0 && !recent && (!IsPlayerNetId(target) || (p && !p->away))) {
+				if (slot < 0)
+					slot = oldest;
+				carHits[slot].victim = target;
+				carHits[slot].at = now;
 				Out o(R_TARGETED);
 				Targeted(target, TG_CAR_HIT, o);
 				o.U32(IdOf(car));
 				o.F32(impulse);
 				o.Vec(car->m_vecMoveSpeed);
 				o.U32(Stamp());
+				o.F32(victim->m_vecDamageNormal.z);
 				hits.sent++;
 				lastSent.target = target;
 				lastSent.method = WEAPONTYPE_RAMMEDBYCAR;
@@ -1178,7 +1422,7 @@ VehicleDamage(CVehicle *veh, CEntity *damagedBy, int32 weaponType, float damage,
 {
 	if (!IsPuppet(veh))
 		return false;
-	if (!bReplaying && Playing() && DirectHit(weaponType) && Local(damagedBy)) {
+	if (!bReplaying && Playing() && DirectHit(weaponType) && Local(damagedBy) && !AwayAboard(veh)) {
 		const uint32 target = IdOf(veh);
 		if (target != 0) {
 			Out o(R_TARGETED);
@@ -1204,7 +1448,7 @@ TyreBurst(CVehicle *veh, uint8 wheel)
 	if (!IsPuppet(veh))
 		return false;
 	const uint32 target = IdOf(veh);
-	if (!bReplaying && Playing() && target != 0) {
+	if (!bReplaying && Playing() && target != 0 && !AwayAboard(veh)) {
 		Out o(R_TARGETED);
 		Targeted(target, TG_TYRE, o);
 		o.U32(IdOf(FindPlayerPed()));
@@ -1221,7 +1465,7 @@ VehicleImpulse(CVehicle *veh, float impulse, uint16 piece)
 	if (!IsPuppet(veh))
 		return false;
 	const uint32 target = IdOf(veh);
-	if (!bReplaying && Playing() && impulse != 0.0f && target != 0) {
+	if (!bReplaying && Playing() && impulse != 0.0f && target != 0 && !AwayAboard(veh)) {
 		Out o(R_TARGETED);
 		Targeted(target, TG_VEHICLE_IMPULSE, o);
 		o.U32(IdOf(FindPlayerPed()));
@@ -1239,7 +1483,7 @@ KnockOff(CVehicle *bike, CPed *rider, int32 weapon, uint8 direction)
 	if (rider == nil || !IsPuppet(rider))
 		return false;
 	const uint32 target = IdOf(rider);
-	if (!bReplaying && Playing() && weapon <= WEAPONTYPE_CHAINSAW && target != 0) {
+	if (!bReplaying && Playing() && weapon <= WEAPONTYPE_CHAINSAW && target != 0 && !AwayAboard(bike)) {
 		Out o(R_TARGETED);
 		Targeted(target, TG_KNOCK_OFF, o);
 		o.U32(IdOf(FindPlayerPed()));
@@ -1438,6 +1682,8 @@ PickupCreated(int32 handle)
 	if (slot < 0 || bMakingPickup || Mode() == MODE_OFF)
 		return;
 	pickups[slot].id = 0;
+	pickups[slot].remote = false;
+	pickups[slot].claimedAt = 0.0;
 	// (a puppet's death played here: its owner drops the real ones)
 	if (bReplaying) {
 		CPickups::RemovePickUp(handle);
@@ -1496,6 +1742,27 @@ PickupCollected(int32 slot)
 	eventsSent++;
 }
 
+bool
+PickupHeld(CPickup *pickup)
+{
+	if (Mode() != MODE_ACTIVE || pickup < CPickups::aPickUps || pickup >= CPickups::aPickUps + NUMPICKUPS)
+		return false;
+	const int32 slot = (int32)(pickup - CPickups::aPickUps);
+	PickupSlot &s = pickups[slot];
+	// (ours, or no client's: collected here at once)
+	if (s.id == 0 || !s.remote || !PickupCurrent(slot))
+		return false;
+	// (another client's copy: claimed once from its maker - the TARGETED record goes to the id's owner -, paid when
+	// granted)
+	if (s.claimedAt == 0.0 && Playing()) {
+		s.claimedAt = Now();
+		Out o(R_TARGETED);
+		Targeted(s.id, TG_PICKUP_CLAIM, o);
+		eventsSent++;
+	}
+	return true;
+}
+
 // ---------------------------------------------------------------- the module's handlers (mmo_internal.h)
 void
 Combat_PreWorld(void)
@@ -1503,6 +1770,7 @@ Combat_PreWorld(void)
 	if (Mode() != MODE_ACTIVE)
 		return;
 	MakePendingPickups();
+	ExpireClaims();
 }
 
 void
@@ -1513,6 +1781,8 @@ Combat_PostWorld(void)
 	CPlayerPed *ped = FindPlayerPed();
 	if (ped->DyingOrDead())
 		TellDeath();
+	else
+		bDeathTold = false; // (alive: the next death is told, whatever brought him back - a respawn, a world loaded)
 	RemoteFlames();
 }
 
@@ -1520,13 +1790,28 @@ void
 Combat_Reset(void)
 {
 	RemoveRemoteProjectiles();
-	for (int32 slot = 0; slot < NUMPICKUPS; slot++)
+	// (the copies of others' pickups go: their makers no longer answer for them; ours stay as plain local pickups)
+	for (int32 slot = 0; slot < NUMPICKUPS; slot++) {
+		if (pickups[slot].id != 0 && pickups[slot].remote)
+			DropPickup(slot);
 		pickups[slot].id = 0;
+		pickups[slot].remote = false;
+		pickups[slot].claimedAt = 0.0;
+	}
 	for (int32 i = 0; i < PENDING_PICKUPS; i++)
 		pendingPickups[i].used = false;
 	lastHit.attacker = 0;
 	lastHit.culprit = nil;
-	bDeathTold = false;
+	bLastDamageNet = false;
+	// (a death already told stays told until the respawn: a resync while wasted tells no second one)
+	CPlayerPed *ped = FindPlayerPed();
+	if (ped == nil || !ped->DyingOrDead())
+		bDeathTold = false;
+	for (int32 i = 0; i < CAR_HIT_MEMORY; i++) {
+		carHits[i].victim = 0;
+		carHits[i].at = 0.0;
+	}
+	lastCarHitOnMe = 0.0;
 	bApplying = bWrecking = bMakingProjectile = bMakingPickup = false;
 	lastMuzzleShooter = nil;
 }
@@ -1566,6 +1851,8 @@ Combat_OnTargeted(int32 from, uint32 target, int32 sub, In &in)
 	case TG_VEHICLE_IMPULSE: OnVehicleDamage(target, sub, in); break;
 	case TG_KNOCK_OFF: OnKnockOff(target, in); break;
 	case TG_CAR_HIT: OnCarHit(target, in); break;
+	case TG_PICKUP_CLAIM: OnPickupClaim(from, target); break;
+	case TG_PICKUP_ANSWER: OnPickupAnswer(in); break;
 	default: break;
 	}
 }
