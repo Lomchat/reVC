@@ -241,6 +241,7 @@ enum eMenuScreen
 	MENUPAGE_MMO_CHARACTER,
 	MENUPAGE_MMO_NEW,
 	MENUPAGE_MMO_DELETE,
+	MENUPAGE_MMO_SKINS, // (its appearance picker: drawn and driven by src/extras/mmo/mmo_skins.cpp)
 #endif
 	MENUPAGE_OUTRO, // Originally 34, but CFO needs last screen to be empty to count number of menu pages
 	MENUPAGES

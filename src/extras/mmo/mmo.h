@@ -38,6 +38,9 @@ namespace OrthrosMmo
 	void EndProcess(void);
 	// FrontendIdle, after FrontEndMenuManager.Process (the main menu runs no CGame::Process).
 	void FrontendFrame(void);
+	// CMenuManager::DrawBackground, after a page's standard menus (active: the page shown, not the one fading out):
+	// what the lobby's pages draw beyond their rows (the appearance picker).
+	void DrawFrontend(int32 screen, bool active);
 	// Render2dStuff before the HUD (name tags); over everything after RenderCheatList (chat, lists, notices).
 	void Render2d(void);
 	void RenderOverlay(void);

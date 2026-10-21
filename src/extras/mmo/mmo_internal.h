@@ -223,12 +223,27 @@ bool Lobby_KeyDown(int32 rsKey);
 void Lobby_TextInput(const char *utf8);
 wchar *Lobby_Text(const char *key);         // dynamic "ORT_*" texts of its pages (nil: not one)
 void Lobby_ScreenChanged(int32 screen);
-void Lobby_DrawFrontend(int32 screen);
+void Lobby_DrawFrontend(int32 screen, bool active); // (a page drawn by the frontend; active: not the one fading out)
 bool Lobby_TestCommand(const char *cmd);
 void Lobby_Debug(void);
-// A skin of the lobby's list in the list's own spelling (any case asked), nil if it is not one of them: the players
-// module wears special models (by name, in a special slot) only from this list.
+void Lobby_SkinPicked(const char *model);   // the appearance picker closed: its choice, nil if none
+// skins (mmo_skins.cpp): the skins' list and the appearance picker
+// A skin of the list in the list's own spelling (any case asked), nil if it is not one of them: the players module
+// wears special models (by name, in a special slot) only from this list.
 const char *Lobby_SkinModel(const char *model);
+bool Lobby_SkinFemale(const char *model);   // (a woman's skin of the list)
+int32 Skins_Index(const char *model);       // (its place in the list, -1 if none)
+int32 Skins_Count(void);
+const char *Skins_Model(int32 i);
+wchar *Skins_Label(const char *model, wchar *out, int32 size); // (its name as the menus show it)
+void Skins_PickerOpen(const char *current);
+void Skins_PickerClose(void);
+bool Skins_PickerOpenNow(void);
+void Skins_PickerFrame(void);
+bool Skins_PickerKey(int32 rsKey);
+void Skins_PickerDraw(bool active);
+bool Skins_TestCommand(const char *word, const char *arg);
+void Skins_Debug(void);
 // players (mmo_players.cpp)
 void Players_OnState(int32 from, In &in);   // in at the record's body start (x, y, z first)
 void Players_Joined(int32 slot);

@@ -1324,6 +1324,16 @@ Session_TestCommand(const char *cmd)
 		entity->Teleport(pos);
 		return true;
 	}
+	if (Command(cmd, "wear", &args)) {
+		// wear <skin>: the player dressed in it as the session dresses it (the skins' check: each one worn)
+		char skin[24] = "";
+		sscanf(args, "%23s", skin);
+		const char *listed = Lobby_SkinModel(skin);
+		ApplySkin(ped, listed ? listed : skin);
+		debug("wear: %s -> model %d (%s)\n", skin, ped->GetModelIndex(),
+		      ped->GetModelIndex() >= 0 ? CModelInfo::GetModelInfo(ped->GetModelIndex())->GetModelName() : "none");
+		return true;
+	}
 	if (Command(cmd, "weapon", &args)) {
 		// weapon <type> <ammo>
 		int32 type = 0, ammo = 0;

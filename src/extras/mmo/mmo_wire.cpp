@@ -1493,6 +1493,12 @@ FrontendFrame(void)
 }
 
 void
+DrawFrontend(int32 screen, bool active)
+{
+	Lobby_DrawFrontend(screen, active);
+}
+
+void
 Render2d(void)
 {
 	if (Dormant())
