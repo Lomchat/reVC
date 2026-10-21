@@ -1715,6 +1715,17 @@ void CStream::Update()
 
 		// Relying a lot on left buffer states in here
 
+#ifdef ORTHROS_EXTRAS
+		// (one thread, the browser's OpenAL: a source's processed count moves only in the page's audio timer, between
+		// frames, never during this one - the two channels updated a moment apart by that timer, the loop below waited
+		// here for ever, the page frozen. Read once; the buffers both channels are done with are taken, the others next
+		// frame)
+		alGetSourcei(m_pAlSources[0], AL_BUFFERS_QUEUED, &totalBuffers[0]);
+		alGetSourcei(m_pAlSources[0], AL_BUFFERS_PROCESSED, &buffersProcessed[0]);
+		alGetSourcei(m_pAlSources[1], AL_BUFFERS_QUEUED, &totalBuffers[1]);
+		alGetSourcei(m_pAlSources[1], AL_BUFFERS_PROCESSED, &buffersProcessed[1]);
+		buffersProcessed[0] = buffersProcessed[1] = Min(buffersProcessed[0], buffersProcessed[1]);
+#else
 		do
 		{
 			//alSourcef(m_pAlSources[0], AL_ROLLOFF_FACTOR, 0.0f);
@@ -1724,6 +1735,7 @@ void CStream::Update()
 			alGetSourcei(m_pAlSources[1], AL_BUFFERS_QUEUED, &totalBuffers[1]);
 			alGetSourcei(m_pAlSources[1], AL_BUFFERS_PROCESSED, &buffersProcessed[1]);
 		} while (buffersProcessed[0] != buffersProcessed[1]);
+#endif
 
 		assert(buffersProcessed[0] == buffersProcessed[1]);
 
