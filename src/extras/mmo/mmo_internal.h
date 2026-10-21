@@ -157,6 +157,13 @@ struct RemotePlayer {
 	CPed *puppet;
 };
 RemotePlayer *Player(int32 slot); // nil when the slot is empty
+// A position from the network something may be put at: finite (NaN fails every comparison) and inside the world's
+// sectors (World.h: x in [WORLD_MIN_X, WORLD_MAX_X] = [-2400, 1600], y in [-2000, 2000], a few metres in; the sector
+// arrays are indexed by it, below 0 unchecked), z between the sea floor and the sky.
+static inline bool PositionInWorld(const CVector &p)
+{
+	return p.x > -2390.0f && p.x < 1590.0f && p.y > -1990.0f && p.y < 1990.0f && p.z > -200.0f && p.z < 2000.0f;
+}
 
 // The entity registry (side tables by pool slot): every networked ped and vehicle, owned or puppet.
 struct NetEntity {
@@ -214,6 +221,9 @@ void Lobby_ScreenChanged(int32 screen);
 void Lobby_DrawFrontend(int32 screen);
 bool Lobby_TestCommand(const char *cmd);
 void Lobby_Debug(void);
+// A skin of the lobby's list in the list's own spelling (any case asked), nil if it is not one of them: the players
+// module wears special models (by name, in a special slot) only from this list.
+const char *Lobby_SkinModel(const char *model);
 // players (mmo_players.cpp)
 void Players_OnState(int32 from, In &in);   // in at the record's body start (x, y, z first)
 void Players_Joined(int32 slot);
@@ -250,6 +260,9 @@ bool Entities_PuppetVehicleControl(CVehicle *veh, NetEntity *ne);
 // told gone (ENTITY_GONE), a puppet's buffers freed; the registry entry is removed right after.
 void Entities_EntityDestroyed(CEntity *e, NetEntity *ne);
 void Entities_Debug(void);
+// A puppet counts in the game's ped/car counters only inside the local population's radius (the entities module's
+// rule, the players module's puppets too).
+bool Entities_InsideLocalPopulation(CEntity *e);
 // combat (mmo_combat.cpp)
 void Combat_PreWorld(void);
 void Combat_PostWorld(void);

@@ -816,7 +816,7 @@ OnPlayerState(int32 from, const uint8 *body, int32 length)
 		return;
 	In head(body, length);
 	const CVector pos = head.Vec();
-	if (!head.Ok())
+	if (!head.Ok() || !PositionInWorld(pos)) // (NaN or out of the world: the whole state dropped)
 		return;
 	p->pos = pos;
 	p->hasState = true;
