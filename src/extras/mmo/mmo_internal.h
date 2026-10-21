@@ -275,7 +275,8 @@ void World_OnRecord(uint16 key, int32 holder, const uint8 *data, int32 length);
 void World_GameLoaded(void);
 void World_BeginProcess(void);
 void World_PreWorld(void);
-void World_Reset(void);
+void World_Reset(void);                     // the world left
+void World_LinkReset(void);                 // the link reset or the queue lost: the locks known again from the records
 void World_OnEvent(int32 from, int32 sub, In &in);
 bool World_TestCommand(const char *cmd);
 void World_Debug(void);

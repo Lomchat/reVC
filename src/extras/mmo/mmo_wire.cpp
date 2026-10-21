@@ -454,7 +454,13 @@ static void
 Resync(bool reconnected)
 {
 	debug("Orthros MMO: %s, resynchronising\n", reconnected ? "link reset" : "queue overflow");
-	Session_ResetModules(); // (hideout locks and the chat too: the server sends them again after WELCOME)
+	// (a reconnection: what the link carried is gone - remote players, copies, locks, the chat the server sends again
+	// after WELCOME -; what is ours to send later (a garage's pending store) stays)
+	Players_Reset();
+	Entities_Reset();
+	Combat_Reset();
+	World_LinkReset();
+	Social_Reset();
 	LeftWorld();
 	if (!helloThisPump) {
 		if (reconnected) {

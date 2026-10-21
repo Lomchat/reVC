@@ -11,6 +11,7 @@
 #include "Clock.h"
 #include "Gangs.h"
 #include "Garages.h"
+#include "HandlingMgr.h"
 #include "Hud.h"
 #include "ModelIndices.h"
 #include "ModelInfo.h"
@@ -70,24 +71,24 @@ enum {
 	WC_WHEELS_ONLY = 1 << 8, WC_HELI_CARS = 1 << 9, WC_RIOT = 1 << 10, WC_HATE_PLAYER = 1 << 11,
 	WC_ARMED_PEDS = 1 << 12, WC_CHICKS_WITH_GUNS = 1 << 13, WC_FANNY_MAGNET = 1 << 14, WC_BIG_WHEELS = 1 << 15,
 };
-static const struct { const char *code; int32 bit; bool oneWay; const char *en, *fr; } worldCheats[] = {
-	{ "AHAIRDRESSERSCAR", WC_PINK_CARS, false, "Pink traffic", "Circulation rose" },
-	{ "IWANTITPAINTEDBLACK", WC_BLACK_CARS, false, "Black traffic", "Circulation noire" },
-	{ "GREENLIGHT", WC_GREEN_LIGHTS, false, "Lights stay green", "Feux toujours verts" },
-	{ "MIAMITRAFFIC", WC_MAD_DRIVERS, false, "Aggressive drivers", "Conducteurs agressifs" },
-	{ "COMEFLYWITHME", WC_FLYING_CARS, false, "Cars fly", "Voitures volantes" },
-	{ "AIRSHIP", WC_FLYING_BOATS, false, "Boats fly", "Bateaux volants" },
-	{ "SEAWAYS", WC_HOVER_CARS, false, "Cars drive on water", "Voitures sur l'eau" },
-	{ "GRIPISEVERYTHING", WC_STRONG_GRIP, false, "Perfect handling", "Tenue de route parfaite" },
-	{ "WHEELSAREALLINEED", WC_WHEELS_ONLY, false, "Only the wheels show", "Seulement les roues" },
-	{ "CARSAREHELI", WC_HELI_CARS, false, "Cars fly like helicopters", "Voitures hélicoptères" },
-	{ "FIGHTFIGHTFIGHT", WC_RIOT, false, "Riot", "Bagarre générale" },
-	{ "NOBODYLIKESME", WC_HATE_PLAYER, false, "Everyone attacks you", "Tout le monde vous attaque" },
-	{ "OURGODGIVENRIGHTTOBEARARMS", WC_ARMED_PEDS, false, "Everyone is armed", "Tout le monde est armé" },
-	{ "CHICKSWITHGUNS", WC_CHICKS_WITH_GUNS, false, "Armed girls in bikinis", "Filles en bikini armées" },
-	{ "FANNYMAGNET", WC_FANNY_MAGNET, false, "Women follow you", "Les femmes vous suivent" },
-	// (not undone by the game: its handling changes stay for the page's life)
-	{ "LOADSOFLITTLETHINGS", WC_BIG_WHEELS, true, "Big wheels, more power", "Grosses roues, plus de puissance" },
+static const struct { const char *code; int32 bit; const char *en, *fr; } worldCheats[] = {
+	{ "AHAIRDRESSERSCAR", WC_PINK_CARS, "Pink traffic", "Circulation rose" },
+	{ "IWANTITPAINTEDBLACK", WC_BLACK_CARS, "Black traffic", "Circulation noire" },
+	{ "GREENLIGHT", WC_GREEN_LIGHTS, "Lights stay green", "Feux toujours verts" },
+	{ "MIAMITRAFFIC", WC_MAD_DRIVERS, "Aggressive drivers", "Conducteurs agressifs" },
+	{ "COMEFLYWITHME", WC_FLYING_CARS, "Cars fly", "Voitures volantes" },
+	{ "AIRSHIP", WC_FLYING_BOATS, "Boats fly", "Bateaux volants" },
+	{ "SEAWAYS", WC_HOVER_CARS, "Cars drive on water", "Voitures sur l'eau" },
+	{ "GRIPISEVERYTHING", WC_STRONG_GRIP, "Perfect handling", "Tenue de route parfaite" },
+	{ "WHEELSAREALLINEED", WC_WHEELS_ONLY, "Only the wheels show", "Seulement les roues" },
+	{ "CARSAREHELI", WC_HELI_CARS, "Cars fly like helicopters", "Voitures hélicoptères" },
+	{ "FIGHTFIGHTFIGHT", WC_RIOT, "Riot", "Bagarre générale" },
+	{ "NOBODYLIKESME", WC_HATE_PLAYER, "Everyone attacks you", "Tout le monde vous attaque" },
+	{ "OURGODGIVENRIGHTTOBEARARMS", WC_ARMED_PEDS, "Everyone is armed", "Tout le monde est armé" },
+	{ "CHICKSWITHGUNS", WC_CHICKS_WITH_GUNS, "Armed girls in bikinis", "Filles en bikini armées" },
+	{ "FANNYMAGNET", WC_FANNY_MAGNET, "Women follow you", "Les femmes vous suivent" },
+	// (the game cannot undo it: what it changes is kept before and put back here, BigWheels)
+	{ "LOADSOFLITTLETHINGS", WC_BIG_WHEELS, "Big wheels, more power", "Grosses roues, plus de puissance" },
 };
 static const struct { const char *code; int16 weather; } weatherCheats[] = {
 	{ "APLEASANTDAY", WEATHER_SUNNY },
@@ -112,7 +113,68 @@ static uint32 baseThreats[NUM_PEDTYPES];
 static bool threatsChanged;
 static int32 baseGangModel1, baseGangModel2, baseGangWeapon1, baseGangWeapon2;
 static bool chicksApplied;
-static bool bigWheelsDone; // (for the page's life: the game cannot undo them)
+
+// (requests sent and not answered yet: the next one is made from them, so two quick cheats are both kept, until the
+// world's state says the same, or for REQUEST_MS: a refused one)
+static const double REQUEST_MS = 3000.0;
+static bool cheatsAsked, weatherAsked, rateAsked;
+static int32 askedCheats, askedWeather;
+static bool askedFast;
+static double cheatsAskedAt, weatherAskedAt, rateAskedAt;
+
+// (LOADSOFLITTLETHINGS, the game's SpecialCarCheats: the wheel scales and handling values it changes kept before, put
+// back when the world's cheat goes or the world is left: the handling is loaded once for the page's life)
+static const int32 bigWheelModels[] = { MI_INFERNUS, MI_CHEETAH, MI_PHEONIX, MI_DELUXO };
+static const tVehicleType bigWheelHandling[] = {
+	HANDLING_LANDSTAL, HANDLING_PATRIOT, HANDLING_BOBCAT, HANDLING_BFINJECT, HANDLING_RANCHER, HANDLING_DESPERAD,
+	HANDLING_DELUXO, HANDLING_BAGGAGE, HANDLING_GOLFCART, HANDLING_STINGER, HANDLING_BANSHEE, HANDLING_SABRETUR,
+	HANDLING_COMET,
+};
+static float savedWheelScale[ARRAY_SIZE(bigWheelModels)];
+static struct { float acceleration, maxVelocity, damage, mass, turnMass; tGear gears[6]; } savedHandling[ARRAY_SIZE(bigWheelHandling)];
+static bool bigWheelsApplied;
+
+static void
+BigWheels(bool on)
+{
+	if (on == bigWheelsApplied)
+		return;
+	if (on) {
+		// (the game's own flag already set: nothing changed by it, nothing to put back)
+		if (CVehicle::bCheat9)
+			return;
+		for (int i = 0; i < (int)ARRAY_SIZE(bigWheelModels); i++)
+			savedWheelScale[i] = ((CVehicleModelInfo *)CModelInfo::GetModelInfo(bigWheelModels[i]))->m_wheelScale;
+		for (int i = 0; i < (int)ARRAY_SIZE(bigWheelHandling); i++) {
+			tHandlingData *hd = mod_HandlingManager.GetHandlingData(bigWheelHandling[i]);
+			savedHandling[i].acceleration = hd->Transmission.fEngineAcceleration;
+			savedHandling[i].maxVelocity = hd->Transmission.fMaxVelocity;
+			savedHandling[i].damage = hd->fCollisionDamageMultiplier;
+			savedHandling[i].mass = hd->fMass;
+			savedHandling[i].turnMass = hd->fTurnMass;
+			memcpy(savedHandling[i].gears, hd->Transmission.Gears, sizeof(savedHandling[i].gears));
+		}
+		SpecialCarCheats();
+		bigWheelsApplied = true;
+		return;
+	}
+	for (int i = 0; i < (int)ARRAY_SIZE(bigWheelModels); i++) {
+		CVehicleModelInfo *mi = (CVehicleModelInfo *)CModelInfo::GetModelInfo(bigWheelModels[i]);
+		if (mi)
+			mi->m_wheelScale = savedWheelScale[i];
+	}
+	for (int i = 0; i < (int)ARRAY_SIZE(bigWheelHandling); i++) {
+		tHandlingData *hd = mod_HandlingManager.GetHandlingData(bigWheelHandling[i]);
+		hd->Transmission.fEngineAcceleration = savedHandling[i].acceleration;
+		hd->Transmission.fMaxVelocity = savedHandling[i].maxVelocity;
+		hd->fCollisionDamageMultiplier = savedHandling[i].damage;
+		hd->fMass = savedHandling[i].mass;
+		hd->fTurnMass = savedHandling[i].turnMass;
+		memcpy(hd->Transmission.Gears, savedHandling[i].gears, sizeof(savedHandling[i].gears));
+	}
+	CVehicle::bCheat9 = false;
+	bigWheelsApplied = false;
+}
 
 static int32
 CheatBits(void)
@@ -199,10 +261,7 @@ ApplyCheatBits(int32 bits, bool initial)
 	else if (!chicks && chicksApplied)
 		SetPlayerGang(baseGangModel1, baseGangModel2, baseGangWeapon1, baseGangWeapon2);
 	chicksApplied = chicks;
-	if ((bits & WC_BIG_WHEELS) && !bigWheelsDone) {
-		bigWheelsDone = true;
-		SpecialCarCheats();
-	}
+	BigWheels((bits & WC_BIG_WHEELS) != 0);
 	int32 changed = bits ^ appliedBits;
 	appliedBits = bits;
 	if (initial || changed == 0)
@@ -355,20 +414,34 @@ World_CheatRequested(const char *code)
 	if (!IsActive() || code == nil)
 		return false;
 	bool send = CanSend();
+	double now = Now();
 	for (int i = 0; i < (int)ARRAY_SIZE(weatherCheats); i++)
 		if (SameCode(code, weatherCheats[i].code)) {
 			// (the same weather asked again gives the world its own cycle back)
 			int32 w = weatherCheats[i].weather;
-			if (send)
-				SendVar(WV_FORCED_WEATHER, ForcedWeather() == w ? WEATHER_RANDOM : w);
+			int32 forced = ForcedWeather();
+			if (weatherAsked && askedWeather != forced && now - weatherAskedAt < REQUEST_MS)
+				forced = askedWeather;
+			if (send) {
+				askedWeather = forced == w ? WEATHER_RANDOM : w;
+				weatherAsked = true;
+				weatherAskedAt = now;
+				SendVar(WV_FORCED_WEATHER, askedWeather);
+			}
 			return true;
 		}
 	if (SameCode(code, "LIFEISPASSINGMEBY")) {
 		float rate = World().msPerMinute;
+		bool fast = rate > 0.0f && rate < FAST_BELOW;
+		if (rateAsked && askedFast != fast && now - rateAskedAt < REQUEST_MS)
+			fast = askedFast;
 		if (send) {
+			askedFast = !fast;
+			rateAsked = true;
+			rateAskedAt = now;
 			Out o(C_WORLD_SET);
 			o.U8(3);
-			o.F32(rate > 0.0f && rate < FAST_BELOW ? NORMAL_MS_PER_MINUTE : FAST_MS_PER_MINUTE);
+			o.F32(askedFast ? FAST_MS_PER_MINUTE : NORMAL_MS_PER_MINUTE);
 		}
 		return true;
 	}
@@ -383,18 +456,21 @@ World_CheatRequested(const char *code)
 	for (int i = 0; i < (int)ARRAY_SIZE(worldCheats); i++)
 		if (SameCode(code, worldCheats[i].code)) {
 			int32 bits = CheatBits();
+			if (cheatsAsked && askedCheats != bits && now - cheatsAskedAt < REQUEST_MS)
+				bits = askedCheats;
 			int32 bit = worldCheats[i].bit;
-			if (worldCheats[i].oneWay)
-				bits |= bit;
-			else
-				bits ^= bit;
+			bits ^= bit;
 			// (pink or black traffic: one of them)
 			if (bit == WC_PINK_CARS && (bits & bit))
 				bits &= ~WC_BLACK_CARS;
 			if (bit == WC_BLACK_CARS && (bits & bit))
 				bits &= ~WC_PINK_CARS;
-			if (send)
+			if (send) {
+				askedCheats = bits;
+				cheatsAsked = true;
+				cheatsAskedAt = now;
 				SendVar(WV_CHEATS, bits);
+			}
 			return true;
 		}
 	return false;
@@ -454,8 +530,34 @@ struct Hideout
 	double lockSentAt;
 	double grantedAt;
 	bool openedHere;    // its cars handed to the game here (restored, then the door opened): ours until stored
+	bool pendingStore;  // stored here, not yet by the server (no link at the door's closing, or not answered yet)
+	bool storeSent;
+	double storeSentAt;
+	uint8 pending[HIDEOUT_BYTES];
+	double claimAt;     // the last claim of a car another player left in it
 };
 static Hideout hideouts[TOTAL_HIDEOUT_GARAGES];
+
+// (the record says this client holds the lock: never while it has no slot, as during a reconnection)
+static bool
+HeldHere(int32 h)
+{
+	const Hideout &hd = hideouts[h];
+	return LocalSlot() != NO_SLOT && hd.known && hd.holder == LocalSlot();
+}
+
+// (the lock asked for, again after LOCK_RETRY_MS if not answered)
+static void
+AskLock(int32 h)
+{
+	Hideout &hd = hideouts[h];
+	if (!CanSend() || LocalSlot() == NO_SLOT || (hd.lockSent && Now() - hd.lockSentAt < LOCK_RETRY_MS))
+		return;
+	Out o(C_LOCK);
+	o.U16(RECORD_GARAGE + h);
+	hd.lockSent = true;
+	hd.lockSentAt = Now();
+}
 
 static int32
 HideoutIndex(const CGarage *garage)
@@ -484,40 +586,65 @@ CarsIn(const uint8 *cars)
 	return n;
 }
 
-// (records from the server: only vehicles this game has, at real positions)
+// CStoredCar's bytes: i32 model, 3 f32 position, 3 f32 forward vector, i32 flags, i8 colours (2), radio, variations
+// (2), bomb, 2 bytes of padding
+enum { SC_MODEL = 0, SC_POS = 4, SC_FORWARD = 16, SC_FLAGS = 28, SC_RADIO = 34, SC_VARIATION = 35, SC_BOMB = 37, SC_PAD = 38 };
+static const int32 STORED_FLAGS = 0x1F; // (CStoredCar's proofs)
+
+// (records from the server: a slot kept only for a car, bike or boat this game has, inside that hideout as the game
+// stores them, its forward vector a unit one; its other bytes within what the game's code reads: the proofs' flags,
+// a radio station, variations of the model's 6 components; no bomb, as the bomb shops are closed)
 static void
-Sanitize(uint8 *cars)
+Sanitize(int32 h, uint8 *cars)
 {
+	CGarage *garage = FindHideoutGarage(h);
 	for (int i = 0; i < NUM_GARAGE_STORED_CARS; i++) {
 		uint8 *c = cars + i * STORED_CAR_BYTES;
-		int32 model;
+		int32 model, flags;
 		float v[6];
-		memcpy(&model, c, 4);
-		memcpy(v, c + 4, sizeof(v));
-		bool ok = model > 0 && model < MODELINFOSIZE && CModelInfo::GetModelInfo(model) &&
-			CModelInfo::GetModelInfo(model)->GetModelType() == MITYPE_VEHICLE;
+		memcpy(&model, c + SC_MODEL, 4);
+		memcpy(v, c + SC_POS, sizeof(v));
+		bool ok = garage != nil && model > 0 && model < MODELINFOSIZE && CModelInfo::GetModelInfo(model) &&
+			(CModelInfo::IsCarModel(model) || CModelInfo::IsBikeModel(model) || CModelInfo::IsBoatModel(model));
 		for (int k = 0; k < 6 && ok; k++)
 			ok = isfinite(v[k]) && Abs(v[k]) < 10000.0f;
-		if (!ok)
+		ok = ok && garage->IsPointInsideGarage(CVector(v[0], v[1], v[2]));
+		float length = ok ? Sqrt(SQR(v[3]) + SQR(v[4]) + SQR(v[5])) : 0.0f;
+		ok = ok && length > 0.9f && length < 1.1f && Sqrt(SQR(v[3]) + SQR(v[4])) > 0.5f;
+		if (!ok) {
 			memset(c, 0, STORED_CAR_BYTES);
+			continue;
+		}
+		for (int k = 3; k < 6; k++)
+			v[k] /= length;
+		memcpy(c + SC_FORWARD, v + 3, 3 * sizeof(float));
+		memcpy(&flags, c + SC_FLAGS, 4);
+		flags &= STORED_FLAGS;
+		memcpy(c + SC_FLAGS, &flags, 4);
+		if (c[SC_RADIO] > RADIO_OFF)
+			c[SC_RADIO] = RADIO_OFF;
+		for (int k = 0; k < 2; k++)
+			if ((int8)c[SC_VARIATION + k] < -1 || (int8)c[SC_VARIATION + k] > 5)
+				c[SC_VARIATION + k] = (uint8)-1;
+		c[SC_BOMB] = 0;
+		c[SC_PAD] = c[SC_PAD + 1] = 0;
 	}
 }
 
-// (records to the server: what the game left unset zeroed — the padding, a boat's bomb, an empty slot)
+// (records to the server: what the game left unset zeroed: the padding, the bomb, an empty slot)
 static void
 Normalize(uint8 *cars)
 {
 	for (int i = 0; i < NUM_GARAGE_STORED_CARS; i++) {
 		uint8 *c = cars + i * STORED_CAR_BYTES;
 		int32 model;
-		memcpy(&model, c, 4);
+		memcpy(&model, c + SC_MODEL, 4);
 		if (model == 0) {
 			memset(c, 0, STORED_CAR_BYTES);
 			continue;
 		}
-		c[38] = c[39] = 0;
-		if (CModelInfo::IsBoatModel(model))
-			c[37] = 0;
+		c[SC_PAD] = c[SC_PAD + 1] = 0;
+		c[SC_BOMB] = 0;
 	}
 }
 
@@ -529,16 +656,17 @@ CopyToGame(int32 h)
 	memset(cars, 0, HIDEOUT_BYTES);
 	if (hd.length > 0)
 		memcpy(cars, hd.data, HIDEOUT_BYTES);
-	Sanitize(cars);
+	Sanitize(h, cars);
 	hd.dirty = false;
 }
 
-// (a record goes into the game's array when the garage is closed here and its cars are not out of it by our hand)
+// (a record goes into the game's array when the garage is closed here and its cars are not out of it by our hand, nor
+// stored here and not yet by the server)
 static void
 ApplyHideout(int32 h)
 {
 	Hideout &hd = hideouts[h];
-	if (!hd.dirty || hd.openedHere || !Ready())
+	if (!hd.dirty || hd.openedHere || hd.pendingStore || !Ready())
 		return;
 	CGarage *garage = FindHideoutGarage(h);
 	if (garage == nil || garage->m_eGarageState == GS_FULLYCLOSED)
@@ -559,7 +687,7 @@ World_OnRecord(uint16 key, int32 holder, const uint8 *data, int32 length)
 		return;
 	int32 h = key - RECORD_GARAGE;
 	Hideout &hd = hideouts[h];
-	bool wasMine = hd.known && hd.holder == LocalSlot();
+	bool wasMine = HeldHere(h);
 	hd.known = true;
 	hd.holder = holder >= 0 && holder < MAX_SLOTS ? (uint8)holder : (uint8)NO_SLOT;
 	hd.length = length > 0 ? Min(length, (int32)HIDEOUT_BYTES) : 0;
@@ -567,9 +695,26 @@ World_OnRecord(uint16 key, int32 holder, const uint8 *data, int32 length)
 	if (hd.length > 0 && data != nil)
 		memcpy(hd.data, data, hd.length);
 	hd.lockSent = false;
-	if (hd.holder == LocalSlot() && !wasMine)
+	if (HeldHere(h) && !wasMine)
 		hd.grantedAt = Now();
+	if (hd.pendingStore) {
+		// (cars stored here: the game's array keeps them until the server has them, our STORE's record, or refused
+		// them, our LOCK answered with another holder: then the server's data)
+		bool stored = hd.holder == NO_SLOT && hd.length == HIDEOUT_BYTES && memcmp(hd.data, hd.pending, HIDEOUT_BYTES) == 0;
+		bool refused = hd.storeSent && hd.holder != NO_SLOT && !HeldHere(h);
+		if (!stored && !refused)
+			return;
+		hd.pendingStore = false;
+		hd.storeSent = false;
+		if (stored) {
+			hd.dirty = false;
+			return;
+		}
+	}
 	hd.dirty = !hd.openedHere;
+	// (a garage opened here whose lock the server no longer gives us, as after a reconnection: asked for again)
+	if (hd.openedHere && hd.holder == NO_SLOT)
+		AskLock(h);
 	ApplyHideout(h);
 }
 
@@ -587,7 +732,7 @@ HideoutMirrored(CGarage *garage)
 	if (hd.openedHere || garage->m_eGarageState != GS_FULLYCLOSED)
 		return false;
 	bool rotated = garage->m_bRotatedDoor;
-	if (hd.known && hd.holder != NO_SLOT && hd.holder != LocalSlot()) {
+	if (hd.known && hd.holder != NO_SLOT && !HeldHere(h)) {
 		if (garage->m_fDoorPos < garage->m_fDoorHeight) {
 			garage->m_fDoorPos = Min(garage->m_fDoorHeight, garage->m_fDoorPos +
 				DOOR_SPEED_HIDEOUT * (rotated ? DOOR_OPEN_ROTATED : DOOR_OPEN) * CTimer::GetTimeStep());
@@ -616,23 +761,40 @@ HideoutMayOpen(CGarage *garage)
 	Hideout &hd = hideouts[h];
 	if (hd.openedHere)
 		return true; // (still restoring: some models were not loaded yet)
-	if (hd.known && hd.holder == LocalSlot()) {
+	if (hd.pendingStore)
+		return false; // (its cars not with the server yet)
+	if (HeldHere(h)) {
 		CopyToGame(h);
 		hd.openedHere = true;
 		return true;
 	}
 	if (hd.known && hd.holder != NO_SLOT)
 		return false;
-	if (CanSend() && (!hd.lockSent || Now() - hd.lockSentAt > LOCK_RETRY_MS)) {
-		SendKey(C_LOCK, h);
-		hd.lockSent = true;
-		hd.lockSentAt = Now();
-	}
+	AskLock(h);
 	return false;
 }
 
-// (StoreAndRemoveCarsForThisHideout's end: the cars stored here go to the server — a lock lost meanwhile, as at a
-// reconnection, is asked for again just before; no link: the server's record stays as it was, here too)
+// (the cars stored here sent: the lock asked for just before, the holder's LOCK accepted again, so that a lock lost
+// meanwhile, as at a reconnection, is taken back if free; sent again after LOCK_RETRY_MS while not answered)
+static void
+SendStore(int32 h)
+{
+	Hideout &hd = hideouts[h];
+	if (!CanSend() || LocalSlot() == NO_SLOT)
+		return;
+	SendKey(C_LOCK, h);
+	{
+		Out o(C_STORE);
+		o.U16(RECORD_GARAGE + h);
+		o.U16(HIDEOUT_BYTES);
+		o.Raw(hd.pending, HIDEOUT_BYTES);
+	}
+	hd.storeSent = true;
+	hd.storeSentAt = Now();
+}
+
+// (StoreAndRemoveCarsForThisHideout's end: the cars stored here kept until the server has them; no link, they wait for
+// it, the game's array as the door left it)
 void
 HideoutStored(CGarage *garage, CStoredCar *cars)
 {
@@ -642,28 +804,49 @@ HideoutStored(CGarage *garage, CStoredCar *cars)
 	if (h < 0)
 		return;
 	Hideout &hd = hideouts[h];
-	if (!hd.openedHere && !(hd.known && hd.holder == LocalSlot()))
+	if (!hd.openedHere && !HeldHere(h))
 		return;
 	hd.openedHere = false;
 	hd.lockSent = false;
-	if (!CanSend()) {
-		hd.dirty = true;
-		return;
-	}
 	uint8 *bytes = (uint8 *)cars;
 	Normalize(bytes);
-	if (!(hd.known && hd.holder == LocalSlot()))
-		SendKey(C_LOCK, h);
-	{
-		Out o(C_STORE);
-		o.U16(RECORD_GARAGE + h);
-		o.U16(HIDEOUT_BYTES);
-		o.Raw(bytes, HIDEOUT_BYTES);
-	}
-	memcpy(hd.data, bytes, HIDEOUT_BYTES);
-	hd.length = HIDEOUT_BYTES;
-	hd.holder = NO_SLOT;
+	memcpy(hd.pending, bytes, HIDEOUT_BYTES);
+	hd.pendingStore = true;
+	hd.storeSent = false;
 	hd.dirty = false;
+	SendStore(h);
+}
+
+// (an undriven copy of another client's vehicle inside a garage opened here, a car another player left in it: claimed,
+// so that it is ours when the door closes and stored with the others; true while there is one)
+static const double CLAIM_RETRY_MS = 1000.0;
+
+static bool
+ClaimParked(int32 h, CGarage *garage)
+{
+	Hideout &hd = hideouts[h];
+	bool claim = CanSend() && Now() - hd.claimAt > CLAIM_RETRY_MS;
+	bool any = false;
+	int i = CPools::GetVehiclePool()->GetSize();
+	while (i-- > 0) {
+		CVehicle *veh = CPools::GetVehiclePool()->GetSlot(i);
+		if (veh == nil || !IsPuppet(veh) || veh->pDriver != nil || veh->VehicleCreatedBy == MISSION_VEHICLE ||
+		    !garage->IsPointInsideGarage(veh->GetPosition()))
+			continue;
+		NetEntity *ne = Find(veh);
+		if (ne == nil || (ne->flags & (EF_DRIVEN | EF_MISSION)))
+			continue;
+		any = true;
+		if (claim) {
+			Out o(C_OWN);
+			o.U32(ne->netid);
+			o.U8(1);
+			o.U8(LocalSlot());
+		}
+	}
+	if (any && claim)
+		hd.claimAt = Now();
+	return any;
 }
 
 bool
@@ -672,12 +855,16 @@ GarageLeaveAlone(CVehicle *veh)
 	return veh != nil && IsActive() && IsPuppet(veh);
 }
 
-// (the holder's door stays open while another player is in the garage or at its door)
+// (the holder's door stays open while another player is in the garage or at its door, or a car another player left in
+// it is not ours yet)
 bool
 HideoutKeepOpen(CGarage *garage)
 {
 	if (!Ready())
 		return false;
+	int32 h = HideoutIndex(garage);
+	if (h >= 0 && hideouts[h].openedHere && ClaimParked(h, garage))
+		return true;
 	for (int32 slot = 0; slot < MAX_SLOTS; slot++) {
 		RemotePlayer *p = Player(slot);
 		if (p == nil || !p->present || p->puppet == nil)
@@ -699,8 +886,20 @@ World_PreWorld(void)
 	for (int32 h = 0; h < TOTAL_HIDEOUT_GARAGES; h++) {
 		Hideout &hd = hideouts[h];
 		ApplyHideout(h);
+		// (cars stored here and not by the server yet: sent once linked, again while not answered)
+		if (hd.pendingStore && (!hd.storeSent || Now() - hd.storeSentAt > LOCK_RETRY_MS))
+			SendStore(h);
+		if (hd.openedHere) {
+			// (its cars out by our hand and its lock not ours, as after a reconnection: asked for again while free)
+			if (!HeldHere(h) && (!hd.known || hd.holder == NO_SLOT))
+				AskLock(h);
+			// (a car another player parked in it claimed as soon as it stands there)
+			CGarage *garage = FindHideoutGarage(h);
+			if (garage && garage->m_eGarageState != GS_FULLYCLOSED)
+				ClaimParked(h, garage);
+		}
 		// (a lock given that the garage did not use — the player gone, or the garage full for the car — goes back)
-		if (hd.known && hd.holder == LocalSlot() && !hd.openedHere && Now() - hd.grantedAt > UNUSED_LOCK_MS && CanSend()) {
+		if (HeldHere(h) && !hd.openedHere && !hd.pendingStore && Now() - hd.grantedAt > UNUSED_LOCK_MS && CanSend()) {
 			SendKey(C_UNLOCK, h);
 			hd.holder = NO_SLOT;
 			hd.lockSent = false;
@@ -741,11 +940,16 @@ World_GameLoaded(void)
 	chicksApplied = false;
 	appliedBits = 0;
 	appliedForced = WEATHER_RANDOM;
+	// (big wheels left on by a world not left through World_Reset: the handling put back before the world's state)
+	BigWheels(false);
+	cheatsAsked = weatherAsked = rateAsked = false;
 	// (the 12 hideouts as the server has them: no record, an empty hideout)
 	for (int32 h = 0; h < TOTAL_HIDEOUT_GARAGES; h++) {
 		Hideout &hd = hideouts[h];
 		hd.openedHere = false;
 		hd.lockSent = false;
+		hd.pendingStore = false;
+		hd.storeSent = false;
 		CopyToGame(h);
 	}
 	CloseBombShops();
@@ -753,30 +957,42 @@ World_GameLoaded(void)
 }
 
 void
-World_Reset(void)
+World_LinkReset(void)
 {
 	// (the server's locks are gone with the link: known again from the records it sends after WELCOME; cars restored
-	// here stay ours to store until the world is loaded again)
+	// here stay ours to store, cars stored here wait to be sent, until the world is loaded again)
 	for (int32 h = 0; h < TOTAL_HIDEOUT_GARAGES; h++) {
 		Hideout &hd = hideouts[h];
 		hd.known = false;
 		hd.holder = NO_SLOT;
 		hd.lockSent = false;
+		hd.storeSent = false;
 		hd.dirty = false;
 	}
+}
+
+void
+World_Reset(void)
+{
+	// (the world left: its locks as at a reconnection, the handling of its big wheels put back for the next game)
+	World_LinkReset();
+	for (int32 h = 0; h < TOTAL_HIDEOUT_GARAGES; h++)
+		hideouts[h].pendingStore = false;
+	BigWheels(false);
+	cheatsAsked = weatherAsked = rateAsked = false;
 }
 
 // ---------------------------------------------------------------- tests
 static void
 TellHideout(int32 h)
 {
-	char line[120];
+	char line[160];
 	Hideout &hd = hideouts[h];
 	CGarage *garage = bLoaded ? FindHideoutGarage(h) : nil;
-	snprintf(line, sizeof(line), "garage %d: %s holder %d, record %d cars (%d bytes), here %d cars, state %d, door %.2f%s",
+	snprintf(line, sizeof(line), "garage %d: %s holder %d, record %d cars (%d bytes), here %d cars, state %d, door %.2f%s%s",
 		h, hd.known ? "known" : "unknown", hd.holder == NO_SLOT ? -1 : hd.holder, CarsIn(hd.data), hd.length,
 		bLoaded ? CarsIn((uint8 *)&CGarages::aCarsInSafeHouses[h][0]) : 0, garage ? garage->m_eGarageState : -1,
-		garage ? garage->m_fDoorPos : 0.0f, hd.openedHere ? ", opened here" : "");
+		garage ? garage->m_fDoorPos : 0.0f, hd.openedHere ? ", opened here" : "", hd.pendingStore ? ", store pending" : "");
 	Social_AddLine(LINE_NOTICE, line);
 }
 
@@ -823,9 +1039,9 @@ World_Debug(void)
 	for (int32 h = 0; h < TOTAL_HIDEOUT_GARAGES; h++) {
 		Hideout &hd = hideouts[h];
 		CGarage *garage = bLoaded ? FindHideoutGarage(h) : nil;
-		DebugAppend("%s{\"h\":%d,\"holder\":%d,\"record\":%d,\"here\":%d,\"state\":%d,\"opened\":%s}", h ? "," : "", h,
-			hd.known ? hd.holder : -2, CarsIn(hd.data), bLoaded ? CarsIn((uint8 *)&CGarages::aCarsInSafeHouses[h][0]) : 0,
-			garage ? garage->m_eGarageState : -1, hd.openedHere ? "true" : "false");
+		DebugAppend("%s{\"h\":%d,\"holder\":%d,\"record\":%d,\"here\":%d,\"state\":%d,\"opened\":%s,\"pending\":%s}", h ? "," : "",
+			h, hd.known ? hd.holder : -2, CarsIn(hd.data), bLoaded ? CarsIn((uint8 *)&CGarages::aCarsInSafeHouses[h][0]) : 0,
+			garage ? garage->m_eGarageState : -1, hd.openedHere ? "true" : "false", hd.pendingStore ? "true" : "false");
 	}
 	DebugAppend("]}");
 }
