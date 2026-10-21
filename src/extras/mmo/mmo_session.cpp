@@ -43,13 +43,11 @@ enum {
 	SAVE_PERIOD = 10000,  // (ms: the character saved this often while played…)
 	SAVE_SOON = 1000,     // (…and this soon after its money or weapons changed…)
 	SAVE_MIN_GAP = 2000,  // (…but not more often than this for a change)
-	LEAVE_WAIT = 3000,    // (LEAVE sent: the main menu when LEFT arrives, or after this)
+	LEAVE_WAIT = 3000,    // (LEAVE sent on an open link: the main menu when LEFT arrives, or after this)
+	LEAVE_GIVE_UP = 30000, // (the link lost while leaving: the last save waits this long for a reconnection)
 	JOIN_STALL = 3000,    // (WELCOME received: the world's load has started within this, or the join is given up)
 	TEST_WAIT = 20000,    // (the "join" test command's steps)
 };
-
-// main.scm (the PC script whose main part is 204,596 bytes, the free mode's start's): its variables' numbers
-static const uint32 MAIN_SCRIPT_SIZE = 204596;
 
 // The threads of the free mode's start a shared world keeps (the root, stunt bonuses, the car parks, the safehouses'
 // pickups, ambient sounds, food vendors, the interiors, Ammu-Nation, hardware stores, the bank vault, the army base's
@@ -66,9 +64,8 @@ static const char *stopThreads[] = {
 	"rchely1", "rc_race", "rc_plne", "heli1", "heli2", "heli3", "heli4", "stadium", "races", "ice1", "usj", "bus",
 	"shop1", "shop2", "shop3", "shop4", "shop5", "securi",
 };
-// The interiors thread's "inside" flags (bank, Malibu, VCPD, rifle range, Café Robina, apartment 3c, mansion, strip
-// club, mall, hotel) and the ped paths its reset switches off (main.scm's subroutine 132298).
-static const int insideFlags[] = { 985, 986, 987, 988, 989, 990, 991, 1002, 1003, 1088 };
+// The ped paths the interiors thread's reset switches off (main.scm's subroutine 132298; its "inside" flags are
+// Social_LeaveInterior's).
 static const float interiorPedRoads[][6] = {
 	{ -956.0f, -355.0f, 5.0f, -898.0f, -328.0f, 25.0f },
 	{ -414.0f, -597.0f, 12.0f, -332.0f, -555.0f, 30.0f },
@@ -88,7 +85,9 @@ static const float NEW_SPAWN_HEADING = 270.0f;
 // Opaque to the server; little-endian, version 1:
 //   u8 version, f32 x y z (the ped's centre), f32 heading (radians), u8 area, f32 health, f32 armour, i32 money,
 //   u8 current weapon slot, u8 n, n x { u8 weapon type, i32 ammo }
-// (money also goes in CHAR_SAVE's own i32, for the character lists)
+// (money also goes in CHAR_SAVE's own i32, for the character lists). A new version must come with a new PROTOCOL
+// (mmo_internal.h): the server then refuses the older engines, which cannot read it - and never write over it, as
+// ApplyCharacter keeps a state it cannot read.
 enum { STATE_VERSION = 1 };
 
 struct SavedState
@@ -118,14 +117,25 @@ public:
 };
 
 // ---------------------------------------------------------------- the session's own state
-static bool bLeaving;          // (LEAVE sent from the world: the main menu next)
-static double leaveSince;
+static bool bLeaving;          // (the player chose to leave the world: the main menu next)
+static bool bLeaveSent;        // (its last save and LEAVE committed on an open link - sent again after a reconnection)
+static double leaveSince;      // (since bLeaveSent, or since the rejoin that will send them)
+static double leaveStart;      // (since the player chose to leave)
+static bool bLeaveGivenUp;     // (no reconnection in time: the player told, the main menu after LEAVE_WAIT)
+static bool bPendingSave;      // (another game chosen from the world: its last save and LEAVE not known delivered yet)
+static uint32 pendingCharId;
+static bool bPendingRejoin;    // (its character's JOIN sent again after a reconnection, WELCOME awaited)
+static double pendingStart;
+static bool bStateUnreadable;  // (the server's state of this character could not be read: never written over)
+static bool bBustedSaved;      // (the arrest saved as its outcome will make it)
 static double welcomeAt;       // (WELCOME: the world's load asked for)
 static bool bRejoining;        // (the link came back: JOIN sent again, the world kept as it is)
 static bool bUnwantedWorld;    // (the world loaded after its join was given up: the main menu at the next frame)
 static bool bDead;             // (between the local player's death and respawn)
 static double nextSave, lastSave;
 static uint32 lastSignature;
+static SavedState lastState;   // (the character as the leave, or the other game, was chosen: what bLeaving or
+static bool bHasLastState;     // bPendingSave send)
 static CVector safePos;        // (where the character comes back: the last place it stood outdoors, on land)
 static float safeHeading;
 static bool bHasSafePos;
@@ -299,13 +309,36 @@ WriteState(const SavedState &s, uint8 *out, int32 cap)
 	return blob.n;
 }
 
-// (the state as played now; after a death, as the respawn will make it — the hospital fee paid, the weapons lost, at the
-// nearest hospital —, so that a tab closed while the player lies dead changes nothing)
+// (where the game's respawn will put the player, as CRestart finds it - a script's override read, not used up)
+static void
+RestartPoint(bool police, const CVector &from, CVector *pos, float *heading)
+{
+	if (CRestart::bOverrideRestart) {
+		*pos = CRestart::OverridePosition;
+		*heading = CRestart::OverrideHeading;
+	} else if (police)
+		CRestart::FindClosestPoliceRestartPoint(from, pos, heading);
+	else
+		CRestart::FindClosestHospitalRestartPoint(from, pos, heading);
+}
+
+// (the fine of an arrest at a wanted level, as GameLogic.cpp's WBSTATE_BUSTED takes it)
+static int32
+ArrestFine(int32 wantedLevel)
+{
+	static const int32 fines[] = { 100, 100, 200, 400, 600, 900, 1500 };
+	return fines[Clamp(wantedLevel, 0, (int32)ARRAY_SIZE(fines) - 1)];
+}
+
+// (the state as played now; after a death or an arrest, as the respawn will make it - the hospital fee or the fine
+// paid, the weapons lost, at the nearest hospital or police station -, so that a tab closed or the world left while the
+// player lies dead or is being arrested changes nothing)
 static void
 CurrentState(SavedState *s, bool afterDeath)
 {
 	CPlayerPed *ped = FindPlayerPed();
 	CPlayerInfo &player = CWorld::Players[CWorld::PlayerInFocus];
+	const bool busted = !afterDeath && player.m_WBState == WBSTATE_BUSTED;
 	s->pos = bHasSafePos ? safePos : ped->GetPosition();
 	s->heading = bHasSafePos ? safeHeading : ped->m_fRotationCur;
 	s->onGround = false;
@@ -323,16 +356,18 @@ CurrentState(SavedState *s, bool afterDeath)
 		s->weapons[s->numWeapons].ammo = weapon.m_nAmmoTotal;
 		s->numWeapons++;
 	}
-	if (afterDeath) {
-		CVector hospital;
+	if (afterDeath || busted) {
+		CVector restart;
 		float heading;
-		CRestart::FindClosestHospitalRestartPoint(ped->GetPosition(), &hospital, &heading);
-		s->pos = hospital + CVector(0.0f, 0.0f, 1.0f);
+		RestartPoint(busted, ped->GetPosition(), &restart, &heading);
+		s->pos = restart + CVector(0.0f, 0.0f, 1.0f);
 		s->heading = DEGTORAD(heading);
 		s->health = player.m_nMaxHealth;
 		s->armour = 0.0f;
-		if (!player.m_bGetOutOfHospitalFree) {
-			s->money = Max(0, s->money - 100);
+		if (busted ? !player.m_bGetOutOfJailFree : !player.m_bGetOutOfHospitalFree)
+			s->money = Max(0, s->money - (busted ? ArrestFine(ped->m_pWanted->GetWantedLevel()) : 100));
+		// (an arrest takes the weapons even out of jail free: the respawn clears them again after the taxi's set-up)
+		if (busted || !player.m_bGetOutOfHospitalFree) {
 			s->numWeapons = 0;
 			s->slot = WEAPONSLOT_UNARMED;
 		}
@@ -354,17 +389,26 @@ Signature(CPlayerPed *ped)
 	return h;
 }
 
-static void
-SaveNow(bool afterDeath)
+// (the state a save would send now: false without a player)
+static bool
+StateToSave(SavedState *s, bool afterDeath)
 {
 	CPlayerPed *ped = FindPlayerPed();
 	if (ped == nil)
-		return;
-	SavedState s;
+		return false;
+	// (dying already - its last seconds before PED_DEAD, or wasted -: saved as the respawn will make it, never alive at 1
+	// health, which the game kills again at once)
+	CurrentState(s, afterDeath || CWorld::Players[CWorld::PlayerInFocus].m_WBState == WBSTATE_WASTED ||
+	                ped->DyingOrDead() || ped->m_fHealth <= 1.0f);
+	return true;
+}
+
+static void
+SendState(const SavedState &s)
+{
 	uint8 data[128];
-	// (dying already - its last seconds before PED_DEAD -: saved as the respawn will make it, never alive at 1 health,
-	// which the game kills again at once)
-	CurrentState(&s, afterDeath || ped->DyingOrDead() || ped->m_fHealth <= 1.0f);
+	if (bStateUnreadable)
+		return;
 	const int32 n = WriteState(s, data, sizeof(data));
 	if (n == 0)
 		return;
@@ -373,9 +417,34 @@ SaveNow(bool afterDeath)
 	out.U16(n);
 	out.Raw(data, n);
 	out.End();
+}
+
+static void
+SaveNow(bool afterDeath)
+{
+	SavedState s;
+	if (!StateToSave(&s, afterDeath))
+		return;
+	SendState(s);
 	lastSave = Now();
 	nextSave = lastSave + SAVE_PERIOD;
-	lastSignature = Signature(ped);
+	lastSignature = Signature(FindPlayerPed());
+}
+
+// (the state kept for a leave or another game: sent now and again after a reconnection, the world here may have moved on)
+static void
+KeepLastState(void)
+{
+	if (!bHasLastState)
+		bHasLastState = StateToSave(&lastState, bDead);
+}
+
+static void
+SendLastStateAndLeave(void)
+{
+	if (bHasLastState)
+		SendState(lastState);
+	RequestLeave();
 }
 
 static void
@@ -453,20 +522,13 @@ PrepareWorld(void)
 	}
 
 	// (outdoors: the start was saved in the mansion — main.scm's subroutines 132277 and 132298, as the interiors thread
-	// resets everything when its player is in no interior)
-	CTimeCycle::StopExtraColour(false);
-	CCarCtrl::CarDensityMultiplier = 1.0f;
-	CRubbish::SetVisibility(true);
-	CGame::currArea = AREA_MAIN_MAP;
-	CStreaming::RemoveBuildingsNotInArea(AREA_MAIN_MAP);
-	if (CTheScripts::MainScriptSize == MAIN_SCRIPT_SIZE) {
+	// resets everything when its player is in no interior; the interiors' own ped paths switched off as it does)
+	Social_LeaveInterior();
+	if (CTheScripts::MainScriptSize == MAIN_SCRIPT_SIZE)
 		for (int32 i = 0; i < (int32)ARRAY_SIZE(interiorPedRoads); i++) {
 			const float *b = interiorPedRoads[i];
 			ThePaths.SwitchPedRoadsOffInArea(Min(b[0], b[3]), Max(b[0], b[3]), Min(b[1], b[4]), Max(b[1], b[4]), Min(b[2], b[5]), Max(b[2], b[5]), true);
 		}
-		for (int32 i = 0; i < (int32)ARRAY_SIZE(insideFlags); i++)
-			*(int32 *)&CTheScripts::ScriptSpace[insideFlags[i] * 4] = 0;
-	}
 
 	// (the player in control again, and no more than a new game's: the start's 100 % perks — 200 health and armour,
 	// fireproof, infinite sprint, fast reload — are not a character's; death and arrest cost as in the game)
@@ -534,8 +596,18 @@ ApplyCharacter(void)
 	CPlayerInfo &player = CWorld::Players[CWorld::PlayerInFocus];
 	const Character &me = Me();
 	SavedState s;
-	if (!ReadState(me.state, me.stateLength, &s))
+	// (a state this engine cannot read - a newer version's, or broken - is kept on the server as it is: the character
+	// played as a new one here, nothing saved over it)
+	bStateUnreadable = me.stateLength > 0 && !ReadState(me.state, me.stateLength, &s);
+	if (me.stateLength <= 0 || bStateUnreadable)
 		NewCharacter(&s);
+	if (bStateUnreadable) {
+		debug("Orthros MMO: the character's state (%d bytes, version %d) is unreadable: not saved this session\n",
+		      me.stateLength, me.state[0]);
+		Social_AddLine(LINE_ERROR, LangFrench() ?
+		               "Personnage enregistr\xC3\xA9 par une version plus r\xC3\xA9" "cente du jeu : rien ne sera sauvegard\xC3\xA9. Rechargez la page." :
+		               "This character was saved by a newer game version: nothing will be saved. Reload the page.");
+	}
 
 	ApplySkin(ped, me.skin);
 	player.m_nMoney = player.m_nVisibleMoney = s.money;
@@ -622,8 +694,12 @@ static void
 ResetSession(void)
 {
 	bLeaving = false;
+	bLeaveSent = false;
+	bLeaveGivenUp = false;
 	bRejoining = false;
 	bDead = false;
+	bBustedSaved = false;
+	bStateUnreadable = false;
 	bHasSafePos = false;
 	numPendingWeapons = 0;
 }
@@ -672,16 +748,63 @@ FinishLeave(void)
 	BackToMainMenu();
 }
 
+// (the last save and LEAVE: known sent only on an open link - the page drops what it cannot send, and a reconnection
+// then rejoins and sends them again, Session_LinkReset)
+static void
+SendLeave(void)
+{
+	SendLastStateAndLeave();
+	bLeaveSent = LinkState() == LINK_OPEN;
+	leaveSince = Now();
+}
+
+// (the state as the leave is chosen: the main menu once the server has it - LEFT -, never before while the link is lost
+// and may come back, LEAVE_GIVE_UP)
 static void
 BeginLeave(void)
 {
 	if (Mode() != MODE_ACTIVE || bLeaving)
 		return;
-	SaveNow(bDead);
-	RequestLeave();
+	bHasLastState = false;
+	KeepLastState();
 	bLeaving = true;
-	leaveSince = Now();
+	bLeaveGivenUp = false;
+	leaveStart = Now();
 	SetMode(MODE_LEAVING);
+	SendLeave();
+	if (!bLeaveSent)
+		Social_AddLine(LINE_NOTICE, LangFrench() ? "Serveur injoignable : sauvegarde avant de partir..." :
+		                                           "Server unreachable: saving before leaving...");
+}
+
+// (leaving, every frame: LEFT not come on an open link - the server slow -, or the link not back in time)
+static void
+LeaveStep(void)
+{
+	const double now = Now();
+	if (bLeaveGivenUp || (bLeaveSent && LinkState() == LINK_OPEN && !bRejoining)) {
+		if (now - leaveSince > LEAVE_WAIT)
+			FinishLeave();
+	} else if (now - leaveStart > LEAVE_GIVE_UP) {
+		debug("Orthros MMO: leaving without the last save, the link did not come back\n");
+		Social_AddLine(LINE_ERROR, LangFrench() ? "Serveur injoignable : la progression depuis la coupure est perdue." :
+		                                          "Server unreachable: the progress since the link was lost is not saved.");
+		bLeaveGivenUp = true;
+		leaveSince = now;
+	}
+}
+
+// (another game chosen while the world's last save may not have gone: sent again after a reconnection, the character
+// rejoined for it - Session_LinkReset, Session_Welcome -, until LEFT or LEAVE_GIVE_UP)
+static void
+PendingSaveStep(void)
+{
+	if (!bPendingSave || Now() - pendingStart <= LEAVE_GIVE_UP)
+		return;
+	debug("Orthros MMO: the last save before another game was not delivered, the link did not come back\n");
+	bPendingSave = false;
+	if (Mode() == MODE_OFF && !FrontEndMenuManager.m_bGameNotLoaded)
+		Disconnect();
 }
 
 // (the join given up: the server told; from the menus, back to the start page, the lobby's link kept; from a game — the
@@ -794,8 +917,9 @@ EveryFrame(void)
 		bUnwantedWorld = false;
 		BackToMainMenu();
 	}
-	if (bLeaving && Now() - leaveSince > LEAVE_WAIT)
-		FinishLeave();
+	if (bLeaving)
+		LeaveStep();
+	PendingSaveStep();
 	if (Mode() == MODE_JOINING && Now() - welcomeAt > JOIN_STALL && !FrontEndMenuManager.m_bWantToLoad)
 		AbortJoin();
 	JoinTestStep();
@@ -851,6 +975,11 @@ Session_PostWorld(void)
 	if (ped == nil)
 		return;
 	TrackSafePosition(ped);
+	// (arrested: saved at once as the arrest's outcome will make it - the fine paid, the weapons taken -, as a death is)
+	if (!bDead && !bBustedSaved && CWorld::Players[CWorld::PlayerInFocus].m_WBState == WBSTATE_BUSTED) {
+		bBustedSaved = true;
+		SaveNow(false);
+	}
 	if (bDead || CWorld::Players[CWorld::PlayerInFocus].m_WBState != WBSTATE_PLAYING || ped->m_fHealth <= 0.0f)
 		return;
 	const double now = Now();
@@ -872,10 +1001,23 @@ Session_Welcome(void)
 		// (the link came back and the server has us again: the world and the character stay as they are here — newer
 		// than the server's copy, which a save brings up to date at once)
 		bRejoining = false;
+		bBustedSaved = false;
 		SaveAt(Now());
 		return;
 	case MODE_JOINING:
+		return;
 	case MODE_LEAVING:
+		// (rejoined to leave: the last save and LEAVE again, the ones sent before may have been lost with the link)
+		if (bRejoining && !bLeaveGivenUp) {
+			bRejoining = false;
+			SendLeave();
+		}
+		return;
+	}
+	if (bPendingSave && bPendingRejoin && Me().id == pendingCharId) {
+		bPendingRejoin = false;
+		// (rejoined only for the last save of the world left for another game)
+		SendLastStateAndLeave();
 		return;
 	}
 	SetMode(MODE_JOINING);
@@ -893,6 +1035,7 @@ Session_Refused(int32 reason)
 		snprintf(why, sizeof(why), "refused %d", reason);
 		JoinTestFail(why);
 	}
+	bPendingSave = false; // (no reconnection after a refusal)
 	if (Mode() == MODE_LOBBY)
 		SetMode(MODE_OFF);
 	else
@@ -920,10 +1063,17 @@ Session_CharResult(int32 op, int32 status, uint32 id)
 		snprintf(why, sizeof(why), "join status %d", status);
 		JoinTestFail(why);
 	}
-	// (the world would not take us back after the link came back — full now —: left)
+	// (the world would not take us back after the link came back - full now -: left; leaving, the last save lost)
 	if (Mode() == MODE_ACTIVE && bRejoining) {
 		DropOut();
 		Disconnect();
+	} else if (Mode() == MODE_LEAVING && bRejoining) {
+		debug("Orthros MMO: leaving without the last save, the world did not take the character back\n");
+		FinishLeave();
+	} else if (bPendingSave && (Mode() == MODE_OFF || Mode() == MODE_LOBBY)) {
+		bPendingSave = false;
+		if (Mode() == MODE_OFF && !FrontEndMenuManager.m_bGameNotLoaded)
+			Disconnect();
 	}
 }
 
@@ -932,8 +1082,15 @@ Session_Left(void)
 {
 	if (bLeaving)
 		FinishLeave();
-	else if (Mode() == MODE_OFF && !FrontEndMenuManager.m_bGameNotLoaded)
-		Disconnect(); // (left for another game: no more link)
+	else {
+		// (a rejoin only to save: what it was told of the others forgotten)
+		if (bPendingSave && !InWorld() && Mode() != MODE_JOINING)
+			Players_Reset();
+		bPendingSave = false;
+		bPendingRejoin = false;
+		if (Mode() == MODE_OFF && !FrontEndMenuManager.m_bGameNotLoaded)
+			Disconnect(); // (left for another game: no more link)
+	}
 }
 
 void
@@ -947,10 +1104,21 @@ Session_LinkReset(void)
 		bRejoining = true;
 		break;
 	case MODE_LEAVING:
-		FinishLeave();
+		// (the last save and LEAVE may have been lost with the link: the character rejoined to send them again, Session_Welcome)
+		if (bLeaveGivenUp)
+			break;
+		RequestJoin(Me().id);
+		bRejoining = true;
+		bLeaveSent = false;
+		leaveSince = Now();
 		break;
 	case MODE_OFF:
-		if (!FrontEndMenuManager.m_bGameNotLoaded)
+	case MODE_LOBBY:
+		if (bPendingSave) {
+			RequestJoin(pendingCharId);
+			bPendingRejoin = true;
+		}
+		else if (Mode() == MODE_OFF && !FrontEndMenuManager.m_bGameNotLoaded)
 			Disconnect();
 		break;
 	}
@@ -976,6 +1144,7 @@ void
 Session_PlayerRespawned(void)
 {
 	bDead = false;
+	bBustedSaved = false;
 	if (Mode() != MODE_ACTIVE)
 		return;
 	CPlayerPed *ped = FindPlayerPed();
@@ -1017,13 +1186,27 @@ GameStarting(bool shared)
 		return;
 	switch (Mode()) {
 	case MODE_ACTIVE:
-		SaveNow(bDead);
-		// fall through
 	case MODE_LEAVING:
+		// (from the world: its last save - the one a leave already chose - kept until LEFT says it arrived; a reconnection
+		// before sends it again, Session_LinkReset)
+		if (!bLeaving)
+			bHasLastState = false;
+		KeepLastState();
+		if (bStateUnreadable)
+			bHasLastState = false;
+		if (!bLeaving || !bLeaveSent)
+			SendLastStateAndLeave();
+		if (!bLeaveGivenUp) {
+			bPendingSave = true;
+			bPendingRejoin = false;
+			pendingCharId = Me().id;
+			pendingStart = Now();
+		}
+		// fall through
 	case MODE_JOINING:
 		// (another game chosen in the shared world's pause menu, or while its join was on: left — the link closes once
 		// LEFT arrives)
-		if (!bLeaving)
+		if (Mode() == MODE_JOINING)
 			RequestLeave();
 		OrthrosExtras::CancelSharedWorld();
 		if (InWorld())
