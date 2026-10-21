@@ -87,6 +87,7 @@ static struct {
 	int32 pendingScreen;              // (a page to switch to at the next frontend frame)
 	int32 editDummy;                  // (FrontEndMenuManager.pEditString while typing: the menu's navigation frozen)
 	int32 pickerDummy;                // (the same while the appearance picker is shown: its keys and mouse are its own)
+	bool swallowMouse;                // (the menu kept frozen until the click that closed the picker is released)
 	int32 pickerFor;                  // (the page the picker was opened from, and goes back to)
 	CMenuScreenCustom::CMenuEntry startRow; bool startRowSaved; int32 startRowAt;
 } lobby;
@@ -910,8 +911,13 @@ Lobby_ScreenChanged(int32 screen)
 	// (the appearance picker left, whatever the way: its models freed, the menu's navigation its own again)
 	if (screen != MENUPAGE_MMO_SKINS) {
 		Skins_PickerClose();
-		if (m.pEditString == &lobby.pickerDummy)
-			m.pEditString = nil;
+		// (a click chose: its release must not choose a row of the page under it too)
+		if (m.pEditString == &lobby.pickerDummy) {
+			if (CPad::GetPad(0)->GetLeftMouse())
+				lobby.swallowMouse = true;
+			else
+				m.pEditString = nil;
+		}
 	}
 
 	switch (screen) {
@@ -1011,6 +1017,11 @@ void
 Lobby_FrontendFrame(void)
 {
 	CMenuManager &m = FrontEndMenuManager;
+	if (lobby.swallowMouse && !CPad::GetPad(0)->GetLeftMouse() && !CPad::GetPad(0)->GetLeftMouseJustUp()) {
+		lobby.swallowMouse = false;
+		if (m.pEditString == &lobby.pickerDummy && m.m_nCurrScreen != MENUPAGE_MMO_SKINS)
+			m.pEditString = nil;
+	}
 	SettlePending();
 	SyncStartRow();
 	if (lobby.pendingScreen) {
