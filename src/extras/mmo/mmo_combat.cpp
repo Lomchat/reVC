@@ -115,8 +115,12 @@ static uint32 makingId;
 struct PickupSlot { uint32 id; int32 handle; bool remote; double claimedAt; };
 static PickupSlot pickups[NUMPICKUPS];
 static bool bMakingPickup;
-struct PendingPickup { bool used; uint32 id; int16 model; uint8 type; uint32 quantity; CVector pos; double until; };
+struct PendingPickup { bool used; uint32 id; int16 model; uint8 type; uint32 quantity; CVector pos; double until; int32 frames; };
 static PendingPickup pendingPickups[PENDING_PICKUPS];
+// (a copy waiting for its model: 10 s and at least this many frames — a slow or stalled client streams the model in
+// frames, not seconds; past both it is dropped. Copies made after the 10 s alone, counted for the checks)
+enum { PENDING_PICKUP_FRAMES = 120 };
+static int32 pickupsLate, pickupsExpired;
 
 // (the last network hit applied to the local player: the killer if it dies of it)
 static struct { uint32 attacker; int32 weapon; CEntity *culprit; double at; } lastHit;
@@ -1168,6 +1172,7 @@ OnPickupMade(In &in)
 			p.quantity = quantity;
 			p.pos = pos;
 			p.until = Now() + 10000.0;
+			p.frames = 0;
 			return;
 		}
 }
@@ -1180,10 +1185,14 @@ MakePendingPickups(void)
 		PendingPickup &p = pendingPickups[i];
 		if (!p.used)
 			continue;
-		if (now > p.until)
+		p.frames++;
+		if (now > p.until && p.frames > PENDING_PICKUP_FRAMES) {
 			p.used = false;
-		else if (PickupModelReady(p.model)) {
+			pickupsExpired++;
+		} else if (PickupModelReady(p.model)) {
 			p.used = false;
+			if (now > p.until)
+				pickupsLate++;
 			MakeRemotePickup(p.id, p.model, p.type, p.quantity, p.pos);
 		}
 	}
@@ -2131,6 +2140,10 @@ Combat_Debug(void)
 			DebugAppend("%s[%.2f,%.2f,%.2f]", k++ ? "," : "", pos.x, pos.y, pos.z);
 		}
 	DebugAppend("]");
+	int32 waiting = 0;
+	for (int32 i = 0; i < PENDING_PICKUPS; i++)
+		waiting += pendingPickups[i].used ? 1 : 0;
+	DebugAppend(",\"pickupCopies\":{\"waiting\":%d,\"late\":%d,\"expired\":%d}", waiting, pickupsLate, pickupsExpired);
 	DebugAppend(",\"lastTrace\":[%.2f,%.2f,%.2f,%.2f,%.2f,%.2f]", lastTraceStart.x, lastTraceStart.y, lastTraceStart.z,
 	            lastTraceEnd.x, lastTraceEnd.y, lastTraceEnd.z);
 	DebugAppend(",\"eventsSent\":%d,\"eventsReceived\":%d,\"kills\":%d,\"deaths\":%d,\"lastKiller\":\"", eventsSent,
