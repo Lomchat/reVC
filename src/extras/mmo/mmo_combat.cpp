@@ -30,6 +30,15 @@
 //            0x29 melee swing  u32 shooter, u8 weapon
 // A pickup made by a client is its maker's: the maker collects it at once; another client touching its copy claims it
 // and is paid only when the maker grants it (the first claim; later ones refused).
+// A player away (the pause menu open, or the tab hidden) is hurt like anyone: the shooter sends its hits (and sees its
+// own blood on the copy at once); a client in its pause menu applies them at once - a death is told then, its fall
+// played when the game runs again -; a hidden tab's engine is frozen, the hits wait in its page and apply when it runs
+// again: a hit on the local player (or what carries him) is taken up to STALE_PLAYER_HIT old, none from before his
+// last spawn or join. Area effects (blasts, flames) reach him too.
+// The crimes of the local player's hits on copies are his, as on his own peds: the game's code reports them on the
+// shooter's side before InflictDamage (DoBulletImpact, FireShotgun, FireMelee, FightStrike, the sniper bullet:
+// CEventList::RegisterEvent with him as criminal - EVENT_SHOOT_COP's two stars), so nothing is added here; the
+// copy's owner plays the victim's own reaction (ReactToAttack: a cop goes for the shooter's copy).
 // Every position, speed and size from the wire is checked (finite, in the world, bounded) before the game sees it.
 #include "common.h"
 
@@ -68,6 +77,9 @@
 #include "AnimManager.h"
 #include "AnimBlendAssociation.h"
 #include "DMAudio.h"
+#include "Population.h"
+#include "CopPed.h"
+#include "Wanted.h"
 
 extern FightMove tFightMoves[NUM_FIGHTMOVES];
 extern CShotInfo gaShotInfo[NUMSHOTINFOS];
@@ -87,8 +99,9 @@ enum {
 enum { REACT_WEAPON, REACT_FIGHT };
 
 enum {
-	STALE_HIT = 20000,     // (ms of server time: a hit older is dropped - a tab hidden meanwhile, its queue replayed;
-	STALE_EFFECT = 15000,  // a blast older is not replayed. Generous: a slow machine's frame may take seconds)
+	STALE_HIT = 20000,     // (ms of server time: a hit on an entity older is dropped - a tab hidden meanwhile, its queue
+	STALE_EFFECT = 15000,  // replayed; a blast older is not replayed. Generous: a slow machine's frame may take seconds)
+	STALE_PLAYER_HIT = 120000, // (a hit on the local player or what carries him: a hidden tab's, applied when it runs again)
 	NEAR = 300,            // (m: an event is sent only when a remote player is this near)
 	SHOTS_PER_SECOND = 40, // (traces, sniper bullets, flames told at most this often)
 	DEATH_MEMORY = 30000,  // (ms: the last network hit names the killer for this long)
@@ -126,6 +139,8 @@ static int32 pickupsLate, pickupsExpired;
 static struct { uint32 attacker; int32 weapon; CEntity *culprit; double at; } lastHit;
 static bool bDeathTold;
 static bool bLastDamageNet; // (the local player's last damage was a network hit's)
+static uint32 lifeStart;    // (server ms of the local player's last spawn or join: hits stamped before are dropped;
+static bool bLifeKnown;     // a join's taken at its first world frame, once the clock is the server's)
 static bool bApplying;  // (a remote hit being applied here: the hooks let it through)
 static bool bWrecking;  // (a puppet vehicle blown up as its owner's was: its occupants are not killed here)
 
@@ -145,6 +160,8 @@ static struct { int32 sent, received, applied, dropped; } hits;
 static struct { uint32 target; int32 method; float damage; double at; } lastSent, lastReceived;
 static int32 eventsSent, eventsReceived, kills, deaths;
 static int32 fireCommands, firedCommands;
+static int32 hitsPaused;  // (hits applied to the local player in its pause menu)
+static int32 playerFires; // (the local player's weapon fired - CWeapon::Fire -, whatever made it: a key, a button, a command)
 static int32 seen[16]; // (events received, by sub - SUB_COMBAT)
 static int32 wrecked;  // (puppet vehicles wrecked here as their owners' were)
 static struct { int32 age, type; float dist; bool replayed; } lastBlast;
@@ -152,7 +169,19 @@ static float flameNearest = -1.0f; // (the nearest a remote flame came to the lo
 static int32 ignitions;
 static CVector lastTraceStart, lastTraceEnd;
 static char lastKiller[24], lastVictim[24];
+
+// (test commands: a ped made by "spawn" - a cop or a civilian 5 m ahead of the player, as the streets' own are, shared
+// as they are -; "look": the camera turned so that the crosshair's line - the mouse aim's, Find3rdPersonCamTargetVector
+// - meets a ped's torso, and the player toward it, every frame for a while: the shot is the player's own then, a real
+// button's)
+static struct { int32 type, model; CPed *ped; bool offset; float dx, dy; } spawn = { -1, -1, nil, false, 0.0f, 0.0f };
+static struct { int32 kind, slot; uint32 id; double until; float err, miss; bool mouse; } look;
+enum { LOOK_NONE, LOOK_PLAYER, LOOK_ENTITY, LOOK_SPAWNED };
 static uint32 lastDeathKiller;
+
+static void TellDeath(void);
+static void SpawnStep(void);
+static void LookStep(void);
 
 // ---------------------------------------------------------------- helpers
 static inline bool
@@ -222,13 +251,13 @@ Doer(CEntity *e)
 	return e;
 }
 
-// (is a remote player, present and not away, within this distance of pos?)
+// (is a remote player within this distance of pos? One away too: what it is shown when it comes back may hurt it)
 static bool
 AnyoneNear(const CVector &pos, float radius)
 {
 	for (int32 i = 0; i < MAX_SLOTS; i++) {
 		const RemotePlayer *p = Player(i);
-		if (p && p->hasState && !p->away && (p->pos - pos).MagnitudeSqr() < radius * radius)
+		if (p && p->hasState && (p->pos - pos).MagnitudeSqr() < radius * radius)
 			return true;
 	}
 	return false;
@@ -258,27 +287,6 @@ static bool
 Bounded(const CVector &v, float max)
 {
 	return Abs(v.x) <= max && Abs(v.y) <= max && Abs(v.z) <= max;
-}
-
-// (the local player away: the pause menu open. Nothing hurts him or what he is in meanwhile)
-static bool
-Away(void)
-{
-	return FrontEndMenuManager.m_bMenuActive;
-}
-
-// (a vehicle carrying a remote player who is away: not hurt by us meanwhile)
-static bool
-AwayAboard(const CVehicle *veh)
-{
-	for (int32 i = -1; i < veh->m_nNumMaxPassengers && i < (int32)ARRAY_SIZE(veh->pPassengers); i++) {
-		const CPed *ped = i < 0 ? veh->pDriver : veh->pPassengers[i];
-		const NetEntity *ne = ped ? Find(ped) : nil;
-		const RemotePlayer *p = ne && ne->puppet && ne->player >= 0 ? Player(ne->player) : nil;
-		if (p && p->away)
-			return true;
-	}
-	return false;
 }
 
 // (a vehicle the local player is in)
@@ -339,11 +347,8 @@ SendPedDamage(CPed *victim, CEntity *damagedBy, int32 method, float damage, int3
 	const uint32 target = IdOf(victim);
 	if (target == 0)
 		return;
-	if (IsPlayerNetId(target)) {
-		const RemotePlayer *p = Player(SlotOfNetId(target));
-		if (p == nil || p->away) // (a player away is not hurt)
-			return;
-	}
+	if (IsPlayerNetId(target) && Player(SlotOfNetId(target)) == nil) // (a player away is hurt like anyone)
+		return;
 	// (a fist fight's reaction is the attacker's move: its level, its strength)
 	int32 reaction = REACT_WEAPON, hitLevel = 0, strength = 0;
 	CEntity *doer = Doer(damagedBy);
@@ -475,25 +480,28 @@ ApplyPedHit(CPed *victim, CEntity *culprit, int32 method, float damage, int32 pi
 	victim->InflictDamage(culprit, (eWeaponType)method, damage, (ePedPieceTypes)piece, dir);
 }
 
-// (the victim's entity here, ours to apply to: the local player, or an entity we own; nil otherwise. The local player is
-// not hurt while away - the pause menu open -, nor the vehicle he is in)
+// (the victim's entity here, ours to apply to: the local player, or an entity we own; nil otherwise. Away - the pause
+// menu open - or not)
 static CEntity *
 OwnVictim(uint32 target)
 {
-	if (IsPlayerNetId(target)) {
-		if (SlotOfNetId(target) != LocalSlot())
-			return nil;
-		CPlayerPed *ped = FindPlayerPed();
-		if (ped == nil || Away())
-			return nil;
-		return ped;
-	}
+	if (IsPlayerNetId(target))
+		return SlotOfNetId(target) == LocalSlot() ? FindPlayerPed() : nil;
 	CEntity *e = EntityOf(target);
 	if (e == nil || IsPuppet(e))
 		return nil;
-	if (Away() && e->IsVehicle() && CarryingMe((CVehicle *)e))
-		return nil;
 	return e;
+}
+
+// (a hit still to apply: one on the local player or what carries him up to STALE_PLAYER_HIT old - a hidden tab's,
+// waiting in its page - and not from before his last spawn or join; one on another entity up to STALE_HIT)
+static bool
+Fresh(const CEntity *victim, uint32 stamp)
+{
+	const bool mine = victim == FindPlayerPed() || (victim->GetType() == ENTITY_TYPE_VEHICLE && CarryingMe((const CVehicle *)victim));
+	if (!mine)
+		return Age(stamp) <= STALE_HIT;
+	return Age(stamp) <= STALE_PLAYER_HIT && (!bLifeKnown || (int32)(stamp - lifeStart) >= 0);
 }
 
 static void
@@ -526,23 +534,29 @@ OnPedDamage(int32 from, uint32 target, In &in)
 	lastReceived.damage = damage;
 	lastReceived.at = Now();
 	CEntity *e = OwnVictim(target);
-	if (e == nil || !e->IsPed() || Age(stamp) > STALE_HIT) {
+	if (e == nil || !e->IsPed() || !Fresh(e, stamp)) {
 		hits.dropped++;
 		return;
 	}
 	CPed *victim = (CPed *)e;
 	CEntity *culprit = Culprit(attacker);
-	if (victim == FindPlayerPed() && attacker != 0) {
+	const bool isPlayer = victim == FindPlayerPed();
+	if (isPlayer && attacker != 0) {
 		lastHit.attacker = attacker;
 		lastHit.weapon = method;
 		lastHit.culprit = culprit;
 		lastHit.at = Now();
 	}
+	if (isPlayer && FrontEndMenuManager.m_bMenuActive)
+		hitsPaused++;
 	bApplying = true;
 	ApplyPedHit(victim, culprit, method, damage, piece, dir, reaction, hitLevel, strength, source);
 	bApplying = false;
 	BloodAt(victim, source);
 	hits.applied++;
+	// (killed in the pause menu - no world frame tells it until the game runs again -: told now)
+	if (isPlayer && victim->DyingOrDead())
+		TellDeath();
 }
 
 static void
@@ -558,7 +572,7 @@ OnVehicleDamage(uint32 target, int32 sub, In &in)
 		const float damage = in.F32();
 		const CVector pos = in.Vec();
 		const uint32 stamp = in.U32();
-		if (!in.Ok() || veh == nil || Age(stamp) > STALE_HIT || !(damage >= 0.0f && damage <= 5000.0f) || !InWorld(pos))
+		if (!in.Ok() || veh == nil || !Fresh(veh, stamp) || !(damage >= 0.0f && damage <= 5000.0f) || !InWorld(pos))
 			break;
 		// (a player's shot bursts no tyre by chance - a player's accuracy is 0 with the mouse aim: the shooter sends
 		// the wheels it hit, TG_TYRE - only an AI's does)
@@ -575,7 +589,7 @@ OnVehicleDamage(uint32 target, int32 sub, In &in)
 	case TG_TYRE: {
 		const int32 wheel = in.U8();
 		const uint32 stamp = in.U32();
-		if (!in.Ok() || veh == nil || Age(stamp) > STALE_HIT || wheel < CAR_PIECE_WHEEL_LF || wheel > CAR_PIECE_WHEEL_RR)
+		if (!in.Ok() || veh == nil || !Fresh(veh, stamp) || wheel < CAR_PIECE_WHEEL_LF || wheel > CAR_PIECE_WHEEL_RR)
 			break;
 		bApplying = true;
 		veh->BurstTyre(wheel, true);
@@ -587,7 +601,7 @@ OnVehicleDamage(uint32 target, int32 sub, In &in)
 		const float impulse = in.F32();
 		const int32 piece = in.U16();
 		const uint32 stamp = in.U32();
-		if (!in.Ok() || veh == nil || !veh->IsCar() || Age(stamp) > STALE_HIT || !(impulse > 0.0f && impulse < 100000.0f))
+		if (!in.Ok() || veh == nil || !veh->IsCar() || !Fresh(veh, stamp) || !(impulse > 0.0f && impulse < 100000.0f))
 			break;
 		const float oldHealth = veh->m_fHealth;
 		bApplying = true;
@@ -613,7 +627,7 @@ OnKnockOff(uint32 target, In &in)
 	const uint32 stamp = in.U32();
 	hits.received++;
 	CEntity *e = OwnVictim(target);
-	if (!in.Ok() || e == nil || !e->IsPed() || Age(stamp) > STALE_HIT) {
+	if (!in.Ok() || e == nil || !e->IsPed() || !Fresh(e, stamp)) {
 		hits.dropped++;
 		return;
 	}
@@ -644,7 +658,7 @@ OnCarHit(uint32 target, In &in)
 	const float normalZ = in.F32();
 	hits.received++;
 	CEntity *e = OwnVictim(target);
-	if (!in.Ok() || e == nil || !e->IsPed() || Age(stamp) > STALE_HIT || !(impulse >= 0.0f && impulse < 100000.0f) ||
+	if (!in.Ok() || e == nil || !e->IsPed() || !Fresh(e, stamp) || !(impulse >= 0.0f && impulse < 100000.0f) ||
 	    !Bounded(speed, 100.0f) || !(normalZ >= -1.01f && normalZ <= 1.01f)) {
 		hits.dropped++;
 		return;
@@ -807,8 +821,8 @@ OnFlame(In &in)
 {
 	const uint32 shooterId = in.U32();
 	const CVector start = in.Vec(), end = in.Vec();
-	// (none while the local player is away: its shot would wait for the game to resume and set him on fire then)
-	if (!in.Ok() || !InWorld(start) || !InWorld(end) || (end - start).MagnitudeSqr() > 100.0f * 100.0f || Away())
+	// (while the local player is away too: the shot waits for the game to run again and sets him on fire then)
+	if (!in.Ok() || !InWorld(start) || !InWorld(end) || (end - start).MagnitudeSqr() > 100.0f * 100.0f)
 		return;
 	CEntity *shooter = Culprit(shooterId);
 	CVector dir = end - start;
@@ -999,16 +1013,15 @@ OnExplosion(In &in)
 	// (the culprit as it is here: the local player stays the creator of a blast he caused - his credit, his wanted level)
 	CEntity *culprit = EntityOf(culpritId);
 	CEntity *exploding = Culprit(explodingId);
-	// (a vehicle's blast: its copy here blows up with it. While the local player is away, only its look: no blast)
+	// (a vehicle's blast: its copy here blows up with it. The local player away too: the blast goes off when the game
+	// runs again)
 	if (exploding && exploding->IsVehicle() && IsPuppet(exploding) && ((CVehicle *)exploding)->GetStatus() != STATUS_WRECKED &&
 	    (type == EXPLOSION_CAR || type == EXPLOSION_CAR_QUICK || type == EXPLOSION_BOAT || type == EXPLOSION_HELI || type == EXPLOSION_HELI2) &&
 	    (exploding->GetPosition() - pos).MagnitudeSqr() < 25.0f * 25.0f) {
-		lastBlast.replayed = !Away();
-		Wreck((CVehicle *)exploding, culprit, !Away());
+		lastBlast.replayed = true;
+		Wreck((CVehicle *)exploding, culprit, true);
 		return;
 	}
-	if (Away())
-		return;
 	lastBlast.replayed = true;
 	const bool wasReplaying = bReplaying;
 	bReplaying = true;
@@ -1401,7 +1414,7 @@ PedHitByCar(CPed *victim, CVehicle *car, float impulse)
 					oldest = i;
 			}
 			const bool recent = slot >= 0 && now - carHits[slot].at < CAR_HIT_INTERVAL;
-			if (target != 0 && !recent && (!IsPlayerNetId(target) || (p && !p->away))) {
+			if (target != 0 && !recent && (!IsPlayerNetId(target) || p)) {
 				if (slot < 0)
 					slot = oldest;
 				carHits[slot].victim = target;
@@ -1431,7 +1444,7 @@ VehicleDamage(CVehicle *veh, CEntity *damagedBy, int32 weaponType, float damage,
 {
 	if (!IsPuppet(veh))
 		return false;
-	if (!bReplaying && Playing() && DirectHit(weaponType) && Local(damagedBy) && !AwayAboard(veh)) {
+	if (!bReplaying && Playing() && DirectHit(weaponType) && Local(damagedBy)) {
 		const uint32 target = IdOf(veh);
 		if (target != 0) {
 			Out o(R_TARGETED);
@@ -1457,7 +1470,7 @@ TyreBurst(CVehicle *veh, uint8 wheel)
 	if (!IsPuppet(veh))
 		return false;
 	const uint32 target = IdOf(veh);
-	if (!bReplaying && Playing() && target != 0 && !AwayAboard(veh)) {
+	if (!bReplaying && Playing() && target != 0) {
 		Out o(R_TARGETED);
 		Targeted(target, TG_TYRE, o);
 		o.U32(IdOf(FindPlayerPed()));
@@ -1474,7 +1487,7 @@ VehicleImpulse(CVehicle *veh, float impulse, uint16 piece)
 	if (!IsPuppet(veh))
 		return false;
 	const uint32 target = IdOf(veh);
-	if (!bReplaying && Playing() && impulse != 0.0f && target != 0 && !AwayAboard(veh)) {
+	if (!bReplaying && Playing() && impulse != 0.0f && target != 0) {
 		Out o(R_TARGETED);
 		Targeted(target, TG_VEHICLE_IMPULSE, o);
 		o.U32(IdOf(FindPlayerPed()));
@@ -1492,7 +1505,7 @@ KnockOff(CVehicle *bike, CPed *rider, int32 weapon, uint8 direction)
 	if (rider == nil || !IsPuppet(rider))
 		return false;
 	const uint32 target = IdOf(rider);
-	if (!bReplaying && Playing() && weapon <= WEAPONTYPE_CHAINSAW && target != 0 && !AwayAboard(bike)) {
+	if (!bReplaying && Playing() && weapon <= WEAPONTYPE_CHAINSAW && target != 0) {
 		Out o(R_TARGETED);
 		Targeted(target, TG_KNOCK_OFF, o);
 		o.U32(IdOf(FindPlayerPed()));
@@ -1530,6 +1543,7 @@ BlockFire(CEntity *shooter)
 	// (the local player's melee swing: heard by the others)
 	CPlayerPed *player = FindPlayerPed();
 	if (shooter == player && Playing()) {
+		playerFires++;
 		CWeapon *weapon = player->GetWeapon();
 		const double now = Now();
 		if (CWeaponInfo::GetWeaponInfo(weapon->m_eWeaponType)->m_eWeaponFire == WEAPON_FIRE_MELEE &&
@@ -1780,6 +1794,10 @@ Combat_PreWorld(void)
 		return;
 	MakePendingPickups();
 	ExpireClaims();
+	if (Playing()) {
+		SpawnStep();
+		LookStep();
+	}
 }
 
 void
@@ -1792,6 +1810,10 @@ Combat_PostWorld(void)
 		TellDeath();
 	else
 		bDeathTold = false; // (alive: the next death is told, whatever brought him back - a respawn, a world loaded)
+	if (!bLifeKnown) {
+		lifeStart = Stamp();
+		bLifeKnown = true;
+	}
 	RemoteFlames();
 }
 
@@ -1812,6 +1834,7 @@ Combat_Reset(void)
 	lastHit.attacker = 0;
 	lastHit.culprit = nil;
 	bLastDamageNet = false;
+	bLifeKnown = false; // (a join or a resync: the hits sent before it are not this session's)
 	// (a death already told stays told until the respawn: a resync while wasted tells no second one)
 	CPlayerPed *ped = FindPlayerPed();
 	if (ped == nil || !ped->DyingOrDead())
@@ -1823,6 +1846,8 @@ Combat_Reset(void)
 	lastCarHitOnMe = 0.0;
 	bApplying = bWrecking = bMakingProjectile = bMakingPickup = false;
 	lastMuzzleShooter = nil;
+	look.until = 0.0;
+	spawn.model = -1;
 }
 
 void
@@ -1878,6 +1903,9 @@ Combat_PlayerRespawned(void)
 	bDeathTold = false;
 	lastHit.attacker = 0;
 	lastHit.culprit = nil;
+	// (a new life: the hits still on their way to the last one - a hidden tab's - do not reach it)
+	lifeStart = Stamp();
+	bLifeKnown = true;
 }
 
 void
@@ -1990,6 +2018,94 @@ FireOnce(int32 slot)
 	return fired;
 }
 
+static void
+SpawnStep(void)
+{
+	CPlayerPed *me = FindPlayerPed();
+	if (spawn.model < 0 || me == nil)
+		return;
+	if (!CStreaming::HasModelLoaded(spawn.model)) {
+		CStreaming::RequestModel(spawn.model, STREAMFLAGS_DEPENDENCY);
+		return;
+	}
+	CVector pos = spawn.offset ? me->GetPosition() + CVector(spawn.dx, spawn.dy, 0.0f) : me->GetPosition() + 5.0f * me->GetForward();
+	CPed *ped = CPopulation::AddPed((ePedType)spawn.type, spawn.type == PEDTYPE_COP ? COP_STREET : spawn.model, pos);
+	spawn.model = -1;
+	if (ped == nil)
+		return;
+	const float heading = CGeneral::GetRadianAngleBetweenPoints(me->GetPosition().x, me->GetPosition().y, pos.x, pos.y);
+	ped->m_fRotationCur = ped->m_fRotationDest = CGeneral::LimitRadianAngle(heading);
+	ped->SetHeading(ped->m_fRotationCur);
+	ped->SetObjective(OBJECTIVE_WAIT_ON_FOOT);
+	if (spawn.ped)
+		spawn.ped->CleanUpOldReference((CEntity **)&spawn.ped);
+	spawn.ped = ped;
+	ped->RegisterReference((CEntity **)&spawn.ped);
+}
+
+static CEntity *
+LookTarget(void)
+{
+	switch (look.kind) {
+	case LOOK_PLAYER: {
+		const RemotePlayer *p = Player(look.slot);
+		return p ? p->puppet : nil;
+	}
+	case LOOK_ENTITY: return EntityOf(look.id);
+	case LOOK_SPAWNED: return spawn.ped;
+	}
+	return nil;
+}
+
+static float
+AngleDiff(float a, float b)
+{
+	float d = a - b;
+	if (!(Abs(d) < 100.0f)) // (not a number: no turn)
+		return 0.0f;
+	while (d > PI)
+		d -= TWOPI;
+	while (d < -PI)
+		d += TWOPI;
+	return d;
+}
+
+static void
+LookStep(void)
+{
+	CPlayerPed *me = FindPlayerPed();
+	CEntity *target = Now() < look.until ? LookTarget() : nil;
+	if (me == nil || target == nil) {
+		look.until = 0.0;
+		return;
+	}
+	CVector at = target->GetPosition();
+	if (target->IsPed())
+		at.z += 0.2f;
+	const CVector d0 = at - me->GetPosition();
+	if (!me->bInVehicle && d0.Magnitude2D() > 0.1f) {
+		const float heading = CGeneral::LimitRadianAngle(Atan2(-d0.x, d0.y));
+		me->m_fRotationCur = me->m_fRotationDest = heading;
+		me->SetHeading(heading);
+	}
+	CCam &cam = TheCamera.Cams[TheCamera.ActiveCam];
+	look.mouse = cam.Using3rdPersonMouseCam();
+	CVector source, end;
+	TheCamera.Find3rdPersonCamTargetVector(100.0f, me->GetPosition(), source, end);
+	const CVector ray = end - source, want = at - source;
+	if (ray.MagnitudeSqr() < 0.0001f || want.MagnitudeSqr() < 0.0001f)
+		return;
+	const float dBeta = AngleDiff(Atan2(want.y, want.x), Atan2(ray.y, ray.x));
+	const float dAlpha = Atan2(want.z, want.Magnitude2D()) - Atan2(ray.z, ray.Magnitude2D());
+	if (!(Abs(dBeta) <= PI && Abs(dAlpha) <= PI && Abs(cam.Beta) < 1000.0f)) // (a camera not set up yet: nothing to turn)
+		return;
+	const float cosErr = DotProduct(ray, want) / (ray.Magnitude() * want.Magnitude());
+	look.err = RADTODEG(Acos(Clamp(cosErr, -1.0f, 1.0f)));
+	look.miss = want.Magnitude() * Sin(DEGTORAD(look.err));
+	cam.Beta += dBeta;
+	cam.Alpha = Clamp(cam.Alpha + dAlpha, -DEGTORAD(89.0f), DEGTORAD(44.0f));
+}
+
 static bool
 Word(const char *cmd, const char *word, const char **args)
 {
@@ -2051,6 +2167,40 @@ Combat_TestCommand(const char *cmd)
 		lastSent.method = weapon;
 		lastSent.damage = damage;
 		lastSent.at = Now();
+		return true;
+	}
+	if (Word(cmd, "spawn", &args)) {
+		// spawn cop|civ [dx dy]: an ambient cop or civilian 5 m ahead (or at that offset from the player), facing the
+		// player (an administrator's)
+		if (Playing() && IsAdmin()) {
+			const bool cop = strncmp(args, "cop", 3) == 0;
+			spawn.type = cop ? PEDTYPE_COP : PEDTYPE_CIVMALE;
+			spawn.model = cop ? MI_COP : MI_MALE01;
+			spawn.dx = spawn.dy = 0.0f;
+			spawn.offset = sscanf(args + 3, "%f %f", &spawn.dx, &spawn.dy) == 2 && Abs(spawn.dx) < 50.0f && Abs(spawn.dy) < 50.0f;
+		}
+		return true;
+	}
+	if (Word(cmd, "look", &args)) {
+		// look <slot> | e<netid> | spawned [seconds]: the mouse aim's crosshair kept on that ped (3 s by default; an
+		// administrator's: an aimbot otherwise)
+		float seconds = 3.0f;
+		look.kind = LOOK_NONE;
+		if (Playing() && IsAdmin()) {
+			if (strncmp(args, "spawned", 7) == 0) {
+				look.kind = LOOK_SPAWNED;
+				sscanf(args + 7, "%f", &seconds);
+			} else if (args[0] == 'e') {
+				unsigned id = 0;
+				if (sscanf(args + 1, "%u %f", &id, &seconds) >= 1) {
+					look.kind = LOOK_ENTITY;
+					look.id = id;
+				}
+			} else if (sscanf(args, "%d %f", &look.slot, &seconds) >= 1)
+				look.kind = LOOK_PLAYER;
+		}
+		look.until = look.kind != LOOK_NONE ? Now() + 1000.0 * Clamp(seconds, 0.0f, 120.0f) : 0.0;
+		look.err = look.miss = -1.0f;
 		return true;
 	}
 	if (Word(cmd, "pickup", &args)) {
@@ -2123,6 +2273,26 @@ Combat_Debug(void)
 			DebugAppend(",\"me\":{\"canBeDamaged\":%s,\"explosionProof\":%s,\"fireProof\":%s,\"pedState\":%d,\"inControl\":%s,\"onFire\":%s}",
 			            me->m_bCanBeDamaged ? "true" : "false", me->bExplosionProof ? "true" : "false", me->bFireProof ? "true" : "false",
 			            me->m_nPedState, me->IsPedInControl() ? "true" : "false", me->m_pFire ? "true" : "false");
+	}
+	{
+		// (the local player's crimes as the police count them: CWanted's chaos, from which the stars come)
+		CPlayerPed *me = Playing() ? FindPlayerPed() : nil;
+		DebugAppend(",\"chaos\":%d", me && me->m_pWanted ? me->m_pWanted->m_nChaos : -1);
+		// (the peds the player's melee reaches: its near peds, the other players' copies among them)
+		int32 nearPlayers = 0;
+		for (int32 i = 0; me && i < me->m_numNearPeds; i++) {
+			const NetEntity *ne = me->m_nearPeds[i] ? Find(me->m_nearPeds[i]) : nil;
+			if (ne && ne->puppet && ne->player >= 0)
+				nearPlayers++;
+		}
+		DebugAppend(",\"nearPeds\":%d,\"nearPlayers\":%d", me ? me->m_numNearPeds : -1, nearPlayers);
+	}
+	DebugAppend(",\"hitsPaused\":%d,\"playerFires\":%d,\"look\":{\"active\":%s,\"err\":%.2f,\"miss\":%.2f,\"mouse\":%s}",
+	            hitsPaused, playerFires, look.until > now ? "true" : "false", look.err, look.miss, look.mouse ? "true" : "false");
+	if (spawn.ped) {
+		const CVector &p = spawn.ped->GetPosition();
+		DebugAppend(",\"spawned\":{\"id\":%u,\"type\":%d,\"health\":%.1f,\"dead\":%s,\"pos\":[%.2f,%.2f,%.2f]}", IdOf(spawn.ped),
+		            spawn.ped->m_nPedType, spawn.ped->m_fHealth, spawn.ped->DyingOrDead() ? "true" : "false", p.x, p.y, p.z);
 	}
 	DebugAppend(",\"fires\":%d,\"fired\":%d,\"lastFire\":{\"target\":%u,\"fired\":%s,\"state\":%d,\"hit\":%d,\"end\":[%.2f,%.2f,%.2f]}",
 	            fireCommands, firedCommands, lastFire.target, lastFire.fired ? "true" : "false", lastFire.state, lastFire.hit,
