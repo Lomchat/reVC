@@ -1390,6 +1390,9 @@ Session_Debug(void)
 	}
 	DebugAppend("],\"wanted\":%d,\"dead\":%s", ped->m_pWanted->GetWantedLevel(),
 	            CWorld::Players[CWorld::PlayerInFocus].m_WBState != WBSTATE_PLAYING ? "true" : "false");
+	// (a character's perks: the maximum health and the infinite sprint, with the ped's stamina)
+	DebugAppend(",\"maxHealth\":%d,\"infiniteSprint\":%s,\"stamina\":%.1f", (int32)CWorld::Players[CWorld::PlayerInFocus].m_nMaxHealth,
+	            CWorld::Players[CWorld::PlayerInFocus].m_bInfiniteSprint ? "true" : "false", ped->m_fCurrentStamina);
 	if (ped->bInVehicle && ped->m_pMyVehicle)
 		DebugAppend(",\"vehicle\":%d", ped->m_pMyVehicle->GetModelIndex());
 	else
