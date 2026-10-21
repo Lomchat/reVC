@@ -17,6 +17,7 @@ class CVehicle;
 class CGarage;
 class CStoredCar;
 class CRunningScript;
+class CPickup;
 
 namespace OrthrosMmo
 {
@@ -110,6 +111,9 @@ namespace OrthrosMmo
 	// Pickups: a dynamic one created (CPickups::GenerateNewOne result), one collected by the local player.
 	void PickupCreated(int32 handle);
 	void PickupCollected(int32 slot);
+	// CPickup::Update, the local player about to collect it: true = not paid here now (another client's pickup,
+	// claimed from its maker: paid when granted).
+	bool PickupHeld(CPickup *pickup);
 	// CBike::KnockOffRider on entry: true = handled (a puppet rider knocked off by us: told to its owner).
 	bool KnockOff(CVehicle *bike, CPed *rider, int32 weapon, uint8 direction);
 

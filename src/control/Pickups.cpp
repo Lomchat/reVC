@@ -420,7 +420,11 @@ CPickup::Update(CPlayerPed *player, CVehicle *vehicle, int playerId)
 			m_bWasControlMessageShown = false;
 
 		// if we didn't then we've got nothing to do
+#ifdef ORTHROS_EXTRAS
+		if (isPickupTouched && CanBePickedUp(player, playerId) && !OrthrosMmo::PickupHeld(this)) { // (a shared world: another client's, claimed from its maker)
+#else
 		if (isPickupTouched && CanBePickedUp(player, playerId)) {
+#endif
 			if (m_pObject->GetModelIndex() != MI_PICKUP_PROPERTY && m_pObject->GetModelIndex() != MI_PICKUP_PROPERTY_FORSALE)
 				CPad::GetPad(0)->StartShake(120, 100);
 

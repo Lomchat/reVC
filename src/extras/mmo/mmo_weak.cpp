@@ -58,6 +58,7 @@ WEAK void ExplosionAdded(CEntity *, CEntity *, int32, const CVector &, uint32) {
 WEAK bool SkipAreaDamage(CEntity *) { return false; }
 WEAK void PickupCreated(int32) {}
 WEAK void PickupCollected(int32) {}
+WEAK bool PickupHeld(CPickup *) { return false; }
 WEAK bool KnockOff(CVehicle *, CPed *, int32, uint8) { return false; }
 // world
 WEAK bool ClockUpdate(void) { return false; }
