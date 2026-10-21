@@ -465,6 +465,7 @@ Resync(bool reconnected)
 			SendHello();
 	}
 	Session_LinkReset();
+	Lobby_LinkReset();
 }
 
 // ---------------------------------------------------------------- the clock

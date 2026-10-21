@@ -551,7 +551,7 @@ UpdateControls(void)
 	controlsOff = off;
 }
 
-// (a line typed or a test's "say": "teleport" opens the list; a cheat's code is typed for the cheats' reader — in a
+// (a line typed or a test's "say": "teleport" opens the list; an administrator's cheat code is typed for the cheats' reader — in a
 // shared world T opens the chat, so a code with a T in it is typed here; one begun with the chat's own letter lost that
 // letter to it, put back —; anything else is said to everyone)
 static void
@@ -572,10 +572,12 @@ Submit(const char *latin1)
 
 	char word[32];
 	int32 k = 0;
-	bool letters = true;
+	bool letters = true, spaces = false;
 	for (s = text; *s && letters; s++) {
-		if (*s == ' ')
+		if (*s == ' ') {
+			spaces = true;
 			continue;
+		}
 		if (k >= (int32)sizeof(word) - 2 || !((*s >= 'a' && *s <= 'z') || (*s >= 'A' && *s <= 'Z')))
 			letters = false;
 		else
@@ -583,9 +585,10 @@ Submit(const char *latin1)
 	}
 	word[k] = 0;
 	if (letters && k > 0) {
+		// (the chat's letter put back on one word only, as a code typed from the game is: "hugs tools" stays a line)
 		char prefixed[34];
 		snprintf(prefixed, sizeof(prefixed), "%c%s", openKey ? openKey : ' ', word);
-		const char *candidates[2] = { word, openKey ? prefixed : nil };
+		const char *candidates[2] = { word, openKey && !spaces ? prefixed : nil };
 		for (int32 i = 0; i < 2; i++) {
 			if (candidates[i] == nil)
 				continue;
@@ -593,7 +596,8 @@ Submit(const char *latin1)
 				OpenTeleportList();
 				return;
 			}
-			if (IsCheatCode(candidates[i])) {
+			// (codes are the administrators' only: anyone else's line that spells one is said, not refused and lost)
+			if (IsAdmin() && IsCheatCode(candidates[i])) {
 				FeedCheat(candidates[i]);
 				return;
 			}

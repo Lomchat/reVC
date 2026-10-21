@@ -285,9 +285,13 @@ ListStatus(void)
 	return s;
 }
 
+static void ClearPending(bool told);
+
 static void
 StartConnecting(bool quiet)
 {
+	// (a new link: nothing asked on the last one is answered on it)
+	ClearPending(false);
 	lobby.quietRetry = quiet;
 	if (!quiet)
 		lobby.connectStart = Now();
@@ -426,6 +430,37 @@ LobbyDelete(uint32 id)
 	SetMessage(M_NONE, -1);
 	lobby.deleting = true;
 	RequestDelete(id);
+}
+
+// (the requests waiting for an answer given up: the link that carried them is gone - closed, refused, reset -; said on
+// the page shown if it stays, on the list otherwise)
+static void
+ClearPending(bool told)
+{
+	const bool pending = lobby.joining || lobby.creating || lobby.deleting;
+	lobby.joining = lobby.creating = lobby.deleting = false;
+	lobby.pendingOpenId = 0;
+	if (pending && told) {
+		const int32 screen = FrontEndMenuManager.m_nCurrScreen;
+		SetMessage(M_ERROR, OurPage(screen) && LinkStatus() == ST_LIST ? screen : MENUPAGE_MMO_CHARACTERS);
+	}
+}
+
+// (the join answered - WELCOME: the session's from then on -, or the requests' link no longer open)
+static void
+SettlePending(void)
+{
+	if (lobby.joining && Mode() != MODE_LOBBY && Mode() != MODE_OFF)
+		lobby.joining = false;
+	else if (LinkState() != LINK_OPEN || !Lobby().valid)
+		ClearPending(true);
+}
+
+void
+Lobby_LinkReset(void)
+{
+	if (Mode() == MODE_LOBBY || Mode() == MODE_OFF)
+		ClearPending(true);
 }
 
 // (CHAR_RESULT and LOBBY records, as the core keeps them: acted upon once each)
@@ -997,8 +1032,9 @@ Lobby_ScreenChanged(int32 screen)
 		break;
 
 	case MENUPAGE_NEW_GAME:
-		// (the world's load failed — the frontend shows the story's page then —: back to the characters)
-		if (prev == MENUPAGE_LOADING_IN_PROGRESS && lobby.joining && m.m_bGameNotLoaded && Mode() != MODE_ACTIVE) {
+		// (the world's load failed — the frontend shows the story's page then —: back to the characters; only the shared
+		// world's load, a WELCOME's, leaves the session joining)
+		if (prev == MENUPAGE_LOADING_IN_PROGRESS && Mode() == MODE_JOINING && m.m_bGameNotLoaded) {
 			lobby.joining = false;
 			SetMessage(M_LOAD_FAILED, MENUPAGE_MMO_CHARACTERS);
 			lobby.pendingScreen = MENUPAGE_MMO_CHARACTERS;
@@ -1011,12 +1047,14 @@ void
 Lobby_Changed(void)
 {
 	PollLobby();
+	SettlePending();
 }
 
 void
 Lobby_FrontendFrame(void)
 {
 	CMenuManager &m = FrontEndMenuManager;
+	SettlePending();
 	SyncStartRow();
 	if (lobby.pendingScreen) {
 		const int32 screen = lobby.pendingScreen;

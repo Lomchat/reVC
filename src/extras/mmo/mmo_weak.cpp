@@ -149,6 +149,7 @@ WEAK void Session_PlayerDied(void) {}
 WEAK void Session_PlayerRespawned(void) {}
 
 WEAK void Lobby_Changed(void) {}
+WEAK void Lobby_LinkReset(void) {}
 WEAK void Lobby_FrontendFrame(void) {}
 WEAK bool Lobby_KeyDown(int32) { return false; }
 WEAK void Lobby_TextInput(const char *) {}

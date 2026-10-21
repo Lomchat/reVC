@@ -210,6 +210,7 @@ void Session_PlayerDied(void);
 void Session_PlayerRespawned(void);
 // lobby (mmo_lobby.cpp)
 void Lobby_Changed(void);                   // LOBBY or CHAR_RESULT received, link state changed
+void Lobby_LinkReset(void);                 // the link came back or its queue was lost: requests pending dropped
 void Lobby_FrontendFrame(void);
 bool Lobby_KeyDown(int32 rsKey);
 void Lobby_TextInput(const char *utf8);
