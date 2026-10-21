@@ -2025,7 +2025,13 @@ CPlayerPed::PlayIdleAnimations(CPad *padUsed)
 					assoc->blendDelta = -8.0f;
 				}
 			}
+#ifdef ORTHROS_EXTRAS
+			// (a shared world: another player's copy may be playing an idle of this block - it holds a reference -;
+			// removing it under that copy left its animation reading freed memory: a crash. Removed once no one holds it)
+			if (!hasIdleAnim && idleAnimBlock->refCount <= 0)
+#else
 			if (!hasIdleAnim)
+#endif
 				CStreaming::RemoveAnim(idleAnimBlockIndex);
 		} else {
 			lastTime = 0;
