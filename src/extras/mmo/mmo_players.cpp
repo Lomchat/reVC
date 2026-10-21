@@ -225,7 +225,6 @@ IsSpecialName(const char *name)
 static void
 ResolveSkin(const char *wanted, Skin *skin)
 {
-	static const char *const women[] = { "igcandy", "igmerc", "igmerc2" };
 	const char *name = wanted && wanted[0] ? wanted : "player";
 	skin->model = -1;
 	skin->female = false;
@@ -248,9 +247,8 @@ ResolveSkin(const char *wanted, Skin *skin)
 	name = listed;
 	skin->special = true;
 	CopyName(skin->name, name, sizeof(skin->name));
-	for (const char *w : women)
-		if (SameName(name, w))
-			skin->female = true;
+	// (a special model's gender: the list's)
+	skin->female = Lobby_SkinFemale(name);
 }
 
 // (with case, as CStreaming::RequestSpecialModel compares: a slot shared under another spelling would be renamed and

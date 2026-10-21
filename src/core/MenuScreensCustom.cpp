@@ -840,6 +840,8 @@ CMenuScreenCustom aScreens[] = {
 	{ "ORT_CHN", MENUPAGE_MMO_CHARACTER, nil, nil,
 		MENUACTION_GOBACK,		"FEDS_TB",	{nil, SAVESLOT_NONE, 0}, 320, 240, MENUALIGN_CENTER,
 	},
+	// MENUPAGE_MMO_SKINS: the appearance picker, no rows (src/extras/mmo/mmo_skins.cpp draws and drives it)
+	{ "ORT_APT", MENUPAGE_MMO_CHARACTER, nil, nil, },
 #endif
 
 	// MENUPAGE_OUTRO = 34

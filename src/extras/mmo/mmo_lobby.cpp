@@ -3,7 +3,8 @@
 // text field, its appearance), the delete confirmation; the link's state on the list page (connecting, sign-in needed,
 // unavailable, full...). The pages are the game's own (static entries of aScreens: MENUPAGE_MMO_*), their rows written
 // here at run time, their texts "ORT_*" keys answered here (Lobby_Text, through OrthrosExtras::Text).
-// The skin list: Tommy's outfits, the story's special characters, ordinary pedestrians.
+// The appearance (the character's and the new character's): chosen on the appearance picker's page, MENUPAGE_MMO_SKINS,
+// opened from the Appearance row (mmo_skins.cpp: the skins' list, the picker and its preview).
 #include "common.h"
 
 #ifdef ORTHROS_EXTRAS
@@ -16,99 +17,6 @@
 
 namespace OrthrosMmo
 {
-// ---------------------------------------------------------------- the skins
-// A skin is a ped model's name: the players' own models (Tommy's outfits, the special characters: not in the game's
-// IDE, loaded by name into a special slot — RequestSpecialModel, their TXD of the same name) or an ordinary ped model
-// (in default.ide: loaded by its model id, never by RequestSpecialModel). All checked in models/gta3.dir (dff and txd).
-// Tommy's outfits are named by the game's own texts (OUTFT1..12: its clothes pickups' numbers, the wardrobe's models in
-// main.scm); OUTFT13 (MC Tommy) has no model.
-struct Skin { const char *model, *en, *fr; int8 outfit; };
-static const Skin skins[] = {
-	{ "player", nil, nil, 1 },
-	{ "player2", nil, nil, 2 },
-	{ "player3", nil, nil, 3 },
-	{ "player4", nil, nil, 4 },
-	{ "player5", nil, nil, 5 },
-	{ "player6", nil, nil, 6 },
-	{ "player7", nil, nil, 7 },
-	{ "player8", nil, nil, 8 },
-	{ "player9", nil, nil, 9 },
-	{ "play10", nil, nil, 10 },
-	{ "play11", nil, nil, 11 },
-	{ "play12", nil, nil, 12 },
-	{ "IGbuddy", "Lance Vance", "Lance Vance", 0 },
-	{ "IGBudy2", "Lance Vance (2)", "Lance Vance (2)", 0 },
-	{ "IGBudy3", "Lance Vance (3)", "Lance Vance (3)", 0 },
-	{ "IGKen", "Ken Rosenberg", "Ken Rosenberg", 0 },
-	{ "IGDiaz", "Ricardo Diaz", "Ricardo Diaz", 0 },
-	{ "IGSonny", "Sonny Forelli", "Sonny Forelli", 0 },
-	{ "IGmike", "Mike Forelli", "Mike Forelli", 0 },
-	{ "IGMike2", "Mike Forelli (2)", "Mike Forelli (2)", 0 },
-	{ "IGColon", "Colonel Cortez", "Colonel Cortez", 0 },
-	{ "IGMerc", "Mercedes Cortez", "Mercedes Cortez", 0 },
-	{ "IGMerc2", "Mercedes Cortez (2)", "Mercedes Cortez (2)", 0 },
-	{ "IGCandy", "Candy Suxxx", "Candy Suxxx", 0 },
-	{ "IGHlary", "Hilary King", "Hilary King", 0 },
-	{ "IGHlry2", "Hilary King (2)", "Hilary King (2)", 0 },
-	{ "IGPhil", "Phil Cassidy", "Phil Cassidy", 0 },
-	{ "IGphil2", "Phil Cassidy (2)", "Phil Cassidy (2)", 0 },
-	{ "IGPhil3", "Phil Cassidy (3)", "Phil Cassidy (3)", 0 },
-	{ "IGJezz", "Jezz Torrent", "Jezz Torrent", 0 },
-	{ "IGDick", "Dick (Love Fist)", "Dick (Love Fist)", 0 },
-	{ "IGPercy", "Percy (Love Fist)", "Percy (Love Fist)", 0 },
-	{ "IGGonz", "Gonzalez", "Gonzalez", 0 },
-	{ "IGalscb", "Alex Shrub", "Alex Shrub", 0 },
-	{ "cop", "Police officer", "Policier", 0 },
-	{ "swat", "SWAT officer", "Agent du SWAT", 0 },
-	{ "fbi", "FBI agent", "Agent du FBI", 0 },
-	{ "army", "Soldier", "Soldat", 0 },
-	{ "medic", "Paramedic", "Ambulancier", 0 },
-	{ "fireman", "Firefighter", "Pompier", 0 },
-	{ "CBa", "Cuban gang", "Gang cubain", 0 },
-	{ "CBb", "Cuban gang (2)", "Gang cubain (2)", 0 },
-	{ "HNa", "Haitian gang", "Gang haïtien", 0 },
-	{ "HNb", "Haitian gang (2)", "Gang haïtien (2)", 0 },
-	{ "SGa", "Streetwannabe", "Streetwannabe", 0 },
-	{ "CLa", "Diaz's gang", "Gang de Diaz", 0 },
-	{ "GDa", "Security guard", "Vigile", 0 },
-	{ "BKa", "Biker", "Motard", 0 },
-	{ "BKb", "Biker (2)", "Motard (2)", 0 },
-	{ "PGa", "Vercetti gang", "Gang Vercetti", 0 },
-	{ "WMYJG", "Jogger", "Joggeur", 0 },
-	{ "WFYJG", "Jogger (woman)", "Joggeuse", 0 },
-	{ "WMYSK", "Roller skater", "Patineur", 0 },
-	{ "WMYBE", "Beach guy", "Baigneur", 0 },
-	{ "WFYBE", "Beach girl", "Baigneuse", 0 },
-	{ "WMYGO", "Golfer", "Golfeur", 0 },
-	{ "WMOTR", "Tramp", "Clochard", 0 },
-};
-enum { NUM_SKINS = ARRAY_SIZE(skins) };
-
-// (a skin's place in the list, -1 if it is not one of them)
-static int32
-SkinIndex(const char *model)
-{
-	for (int32 i = 0; i < NUM_SKINS; i++)
-		if (strcasecmp(skins[i].model, model) == 0)
-			return i;
-	return -1;
-}
-
-const char *
-Lobby_SkinModel(const char *model)
-{
-	const int32 i = model ? SkinIndex(model) : -1;
-	return i < 0 ? nil : skins[i].model;
-}
-
-static int32
-NextSkin(int32 i, int32 step)
-{
-	if (i < 0)
-		return step > 0 ? 0 : NUM_SKINS - 1;
-	return (i + step + NUM_SKINS) % NUM_SKINS;
-}
-
 // ---------------------------------------------------------------- texts
 // (a UTF-8 text in the game's codes, into a buffer of its own)
 static wchar *
@@ -124,41 +32,18 @@ Tr(const char *en, const char *fr)
 	return LangFrench() ? fr : en;
 }
 
+// (a skin's model name kept: the list's spelling, "" for none)
 static void
-Append(wchar *out, int32 size, const wchar *s)
+SetSkin(char *out, const char *model)
 {
-	int32 n = 0;
-	while (n < size - 1 && out[n])
-		n++;
-	for (; s && *s && n < size - 1; s++)
-		out[n++] = *s;
-	out[n] = 0;
-}
-
-// (a skin's name as the game shows it: Tommy's outfits by the game's own texts)
-static wchar *
-SkinLabel(const char *model, wchar *out, int32 size)
-{
-	const int32 i = SkinIndex(model);
-	if (i < 0)
-		return Game(model, out, size);
-	const Skin &s = skins[i];
-	if (s.outfit == 0)
-		return Game(Tr(s.en, s.fr), out, size);
-	char key[8];
-	wchar part[64];
-	snprintf(key, sizeof(key), "OUTFT%d", s.outfit);
-	Game("Tommy (", out, size);
-	Append(out, size, TheText.Get(key));
-	// (the game names both tracksuits alike)
-	Append(out, size, Game(s.outfit == 11 ? " 2)" : ")", part, ARRAY_SIZE(part)));
-	return out;
+	const char *listed = model ? Lobby_SkinModel(model) : nil;
+	snprintf(out, 24, "%s", listed ? listed : model ? model : "");
 }
 
 // ---------------------------------------------------------------- the lobby's state
 enum {
 	PAGE_FIRST = MENUPAGE_MMO_CHARACTERS,
-	NUM_PAGES = MENUPAGE_MMO_DELETE - MENUPAGE_MMO_CHARACTERS + 1,
+	NUM_PAGES = MENUPAGE_MMO_SKINS - MENUPAGE_MMO_CHARACTERS + 1,
 	MAX_LIST_CHARS = sizeof(LobbyData::chars) / sizeof(LobbyData::chars[0]),
 	MAX_VISIBLE = 12,             // (the frontend's MAX_VISIBLE_OPTION: more rows scroll)
 	NAME_MAX = 16,
@@ -194,20 +79,23 @@ static struct {
 	uint32 seenLobby, seenResult;
 	int32 message, messagePage;
 	uint32 selectedId;                // (the character page's)
-	int32 skinChoice;                 // (its appearance as chosen here; sent when it leaves the row)
+	char skinChoice[24];              // (its appearance as shown: the stored one, or the one just chosen until stored)
 	char newName[NAME_MAX + 1], nameBefore[NAME_MAX + 1];
-	int32 newSkin;
+	char newSkin[24];
 	bool editing, creating, deleting, joining;
 	uint32 pendingOpenId;             // (a character just created: its page once the lobby lists it)
 	int32 pendingScreen;              // (a page to switch to at the next frontend frame)
 	int32 editDummy;                  // (FrontEndMenuManager.pEditString while typing: the menu's navigation frozen)
+	int32 pickerDummy;                // (the same while the appearance picker is shown: its keys and mouse are its own)
+	bool swallowMouse;                // (the menu kept frozen until the click that closed the picker is released)
+	int32 pickerFor;                  // (the page the picker was opened from, and goes back to)
 	CMenuScreenCustom::CMenuEntry startRow; bool startRowSaved; int32 startRowAt;
 } lobby;
 
 static bool
 OurPage(int32 screen)
 {
-	return screen >= MENUPAGE_MMO_CHARACTERS && screen <= MENUPAGE_MMO_DELETE;
+	return screen >= MENUPAGE_MMO_CHARACTERS && screen <= MENUPAGE_MMO_SKINS;
 }
 
 static const LobbyCharacter *
@@ -353,6 +241,9 @@ StopEditing(bool keep)
 bool
 Lobby_KeyDown(int32 rsKey)
 {
+	// (the appearance picker's keys: all of them while it is shown)
+	if (FrontEndMenuManager.m_bMenuActive && FrontEndMenuManager.m_nCurrScreen == MENUPAGE_MMO_SKINS)
+		return Skins_PickerKey(rsKey);
 	if (!lobby.editing)
 		return false;
 	switch (rsKey) {
@@ -395,9 +286,9 @@ static void
 ApplySkinChoice(void)
 {
 	const LobbyCharacter *c = FindCharacter(lobby.selectedId);
-	if (c == nil || lobby.skinChoice < 0 || strcasecmp(c->skin, skins[lobby.skinChoice].model) == 0)
+	if (c == nil || lobby.skinChoice[0] == '\0' || strcasecmp(c->skin, lobby.skinChoice) == 0)
 		return;
-	RequestSkin(c->id, skins[lobby.skinChoice].model);
+	RequestSkin(c->id, lobby.skinChoice);
 }
 
 static void
@@ -514,19 +405,18 @@ PollLobby(void)
 		int32 index;
 		if (lobby.pendingOpenId && FindCharacter(lobby.pendingOpenId, &index)) {
 			lobby.selectedId = lobby.pendingOpenId;
-			lobby.skinChoice = SkinIndex(l.chars[index].skin);
+			SetSkin(lobby.skinChoice, l.chars[index].skin);
 			lobby.pendingOpenId = 0;
 			if (screen == MENUPAGE_MMO_NEW)
 				lobby.pendingScreen = MENUPAGE_MMO_CHARACTER;
 		}
 		const LobbyCharacter *c = FindCharacter(lobby.selectedId);
-		if (c == nil && (screen == MENUPAGE_MMO_CHARACTER || screen == MENUPAGE_MMO_DELETE))
+		if (c == nil && (screen == MENUPAGE_MMO_CHARACTER || screen == MENUPAGE_MMO_DELETE ||
+		                 (screen == MENUPAGE_MMO_SKINS && lobby.pickerFor == MENUPAGE_MMO_CHARACTER)))
 			lobby.pendingScreen = MENUPAGE_MMO_CHARACTERS;
-		// (the appearance shown is the stored one unless one is being chosen on its row)
-		const int32 option = FrontEndMenuManager.m_nCurrOption;
-		if (c && screen == MENUPAGE_MMO_CHARACTER && option >= 0 && option < NUM_MENUROWS &&
-		    lobby.rows[screen - PAGE_FIRST][option].role != R_APPEARANCE)
-			lobby.skinChoice = SkinIndex(c->skin);
+		// (the appearance shown is the stored one: a choice sent is shown until the lobby lists it)
+		if (c)
+			SetSkin(lobby.skinChoice, c->skin);
 	}
 }
 
@@ -579,7 +469,7 @@ CharacterPress(int8 action)
 	if (i < 0 || i >= l.count)
 		return;
 	lobby.selectedId = l.chars[i].id;
-	lobby.skinChoice = SkinIndex(l.chars[i].skin);
+	SetSkin(lobby.skinChoice, l.chars[i].skin);
 	SetMessage(M_NONE, -1);
 	FrontEndMenuManager.SwitchToNewScreen(MENUPAGE_MMO_CHARACTER);
 }
@@ -640,27 +530,51 @@ static wchar *
 AppearanceDraw(bool *disabled, bool)
 {
 	static wchar buffer[64];
-	if (lobby.skinChoice >= 0)
-		return SkinLabel(skins[lobby.skinChoice].model, buffer, ARRAY_SIZE(buffer));
+	if (lobby.skinChoice[0])
+		return Skins_Label(lobby.skinChoice, buffer, ARRAY_SIZE(buffer));
 	const LobbyCharacter *c = FindCharacter(lobby.selectedId);
-	return c ? SkinLabel(c->skin, buffer, ARRAY_SIZE(buffer)) : nil;
+	return c ? Skins_Label(c->skin, buffer, ARRAY_SIZE(buffer)) : nil;
 }
 
-// (LEFT / RIGHT and SELECT go through the list; the choice is sent once the row loses the cursor — the page left, Play)
+// (the appearance picker opened from a page's Appearance row, Enter or a click; it comes back with its choice)
+static void
+OpenPicker(int32 page, const char *current)
+{
+	lobby.pickerFor = page;
+	Skins_PickerOpen(current);
+	FrontEndMenuManager.SwitchToNewScreen(MENUPAGE_MMO_SKINS);
+}
+
 static void
 AppearancePress(int8 action)
 {
-	if (action == FEOPTION_ACTION_FOCUSLOSS) {
-		ApplySkinChoice();
+	if (action != FEOPTION_ACTION_SELECT)
 		return;
-	}
-	if (lobby.skinChoice < 0) {
-		const LobbyCharacter *c = FindCharacter(lobby.selectedId);
-		lobby.skinChoice = c ? SkinIndex(c->skin) : -1;
-	}
-	lobby.skinChoice = NextSkin(lobby.skinChoice, action == FEOPTION_ACTION_LEFT ? -1 : 1);
 	if (lobby.messagePage == MENUPAGE_MMO_CHARACTER)
 		SetMessage(M_NONE, -1);
+	if (lobby.joining)
+		return;
+	const LobbyCharacter *c = FindCharacter(lobby.selectedId);
+	OpenPicker(MENUPAGE_MMO_CHARACTER, lobby.skinChoice[0] ? lobby.skinChoice : c ? c->skin : nil);
+}
+
+// (the picker closed: its choice (sent at once for a character, kept for a new one) and back to its page)
+void
+Lobby_SkinPicked(const char *model)
+{
+	CMenuManager &m = FrontEndMenuManager;
+	const int32 back = lobby.pickerFor == MENUPAGE_MMO_NEW ? MENUPAGE_MMO_NEW : MENUPAGE_MMO_CHARACTER;
+	if (model && back == MENUPAGE_MMO_NEW)
+		SetSkin(lobby.newSkin, model);
+	else if (model) {
+		const LobbyCharacter *c = FindCharacter(lobby.selectedId);
+		if (c && strcasecmp(c->skin, model) != 0) {
+			SetSkin(lobby.skinChoice, model);
+			ApplySkinChoice();
+		}
+	}
+	if (m.m_nCurrScreen == MENUPAGE_MMO_SKINS)
+		m.SwitchToNewScreen(back);
 }
 
 static void
@@ -701,14 +615,21 @@ static wchar *
 NewAppearanceDraw(bool *disabled, bool)
 {
 	static wchar buffer[64];
-	return SkinLabel(skins[lobby.newSkin].model, buffer, ARRAY_SIZE(buffer));
+	if (lobby.newSkin[0] == '\0')
+		SetSkin(lobby.newSkin, "player");
+	return Skins_Label(lobby.newSkin, buffer, ARRAY_SIZE(buffer));
 }
 
 static void
 NewAppearancePress(int8 action)
 {
-	if (action != FEOPTION_ACTION_FOCUSLOSS)
-		lobby.newSkin = NextSkin(lobby.newSkin, action == FEOPTION_ACTION_LEFT ? -1 : 1);
+	if (action != FEOPTION_ACTION_SELECT)
+		return;
+	if (lobby.editing)
+		StopEditing(true);
+	if (lobby.newSkin[0] == '\0')
+		SetSkin(lobby.newSkin, "player");
+	OpenPicker(MENUPAGE_MMO_NEW, lobby.newSkin);
 }
 
 static wchar *
@@ -722,7 +643,7 @@ static void
 CreatePress(int8 action)
 {
 	if (action == FEOPTION_ACTION_SELECT)
-		LobbyCreate(lobby.newName, skins[lobby.newSkin].model);
+		LobbyCreate(lobby.newName, lobby.newSkin[0] ? lobby.newSkin : "player");
 }
 
 // (a page's rows written: each its role, key, action, place; the rest of the page cleared)
@@ -863,6 +784,14 @@ BuildDelete(void)
 	EndRows(page, 25, false);
 }
 
+// (the appearance picker's page: no rows, the picker draws and drives it; the menus' wide frame)
+static void
+BuildSkins(void)
+{
+	rowCount = 0;
+	EndRows(MENUPAGE_MMO_SKINS, 28, true);
+}
+
 static int32
 FindRow(int32 page, int32 role, int32 index)
 {
@@ -979,6 +908,17 @@ Lobby_ScreenChanged(int32 screen)
 	const int32 prev = m.m_nPrevScreen;
 	if (lobby.editing && screen != MENUPAGE_MMO_NEW)
 		StopEditing(true);
+	// (the appearance picker left, whatever the way: its models freed, the menu's navigation its own again)
+	if (screen != MENUPAGE_MMO_SKINS) {
+		Skins_PickerClose();
+		// (a click chose: its release must not choose a row of the page under it too)
+		if (m.pEditString == &lobby.pickerDummy) {
+			if (CPad::GetPad(0)->GetLeftMouse())
+				lobby.swallowMouse = true;
+			else
+				m.pEditString = nil;
+		}
+	}
 
 	switch (screen) {
 	case MENUPAGE_START_MENU:
@@ -1026,15 +966,27 @@ Lobby_ScreenChanged(int32 screen)
 
 	case MENUPAGE_MMO_CHARACTER:
 		BuildCharacter();
-		SelectRow(screen, prev == MENUPAGE_MMO_DELETE ? R_DELETE : R_PLAY, -1);
+		SelectRow(screen, prev == MENUPAGE_MMO_DELETE ? R_DELETE : prev == MENUPAGE_MMO_SKINS ? R_APPEARANCE : R_PLAY, -1);
 		break;
 
 	case MENUPAGE_MMO_NEW:
 		BuildNew();
+		if (prev == MENUPAGE_MMO_SKINS) {
+			SelectRow(screen, R_APPEARANCE, -1);
+			break;
+		}
 		SelectRow(screen, R_NAME, -1);
 		// (an empty pseudo typed at once)
 		if (lobby.newName[0] == '\0')
 			StartEditing();
+		break;
+
+	case MENUPAGE_MMO_SKINS:
+		BuildSkins();
+		// (opened without a page of ours behind it, never by the menus: back to the list)
+		if (!Skins_PickerOpenNow())
+			lobby.pendingScreen = MENUPAGE_MMO_CHARACTERS;
+		m.pEditString = &lobby.pickerDummy;
 		break;
 
 	case MENUPAGE_MMO_DELETE:
@@ -1065,6 +1017,11 @@ void
 Lobby_FrontendFrame(void)
 {
 	CMenuManager &m = FrontEndMenuManager;
+	if (lobby.swallowMouse && !CPad::GetPad(0)->GetLeftMouse() && !CPad::GetPad(0)->GetLeftMouseJustUp()) {
+		lobby.swallowMouse = false;
+		if (m.pEditString == &lobby.pickerDummy && m.m_nCurrScreen != MENUPAGE_MMO_SKINS)
+			m.pEditString = nil;
+	}
 	SettlePending();
 	SyncStartRow();
 	if (lobby.pendingScreen) {
@@ -1087,6 +1044,11 @@ Lobby_FrontendFrame(void)
 	if (page != MENUPAGE_MMO_CHARACTERS && ListStatus() != ST_LIST) {
 		lobby.pendingScreen = MENUPAGE_MMO_CHARACTERS;
 		return;
+	}
+	if (page == MENUPAGE_MMO_SKINS) {
+		if (m.pEditString == nil)
+			m.pEditString = &lobby.pickerDummy;
+		Skins_PickerFrame();
 	}
 	if (page == MENUPAGE_MMO_CHARACTERS) {
 		// (after a sign-in, the link tried again now and then until it is accepted)
@@ -1111,14 +1073,16 @@ Lobby_FrontendFrame(void)
 		if (lobby.rows[p][m.m_nCurrOption].role == R_LABEL && lobby.numRows[p] > 1)
 			m.m_nCurrOption = FirstOption(page);
 		if (aScreens[page].layout)
-			aScreens[page].layout->showLeftRightHelper = lobby.rows[p][m.m_nCurrOption].role == R_APPEARANCE && !lobby.editing;
+			aScreens[page].layout->showLeftRightHelper = false;
 	}
 }
 
-// (nothing drawn beyond the game's own rows: the pages' labels and right-hand texts say it all)
+// (beyond the game's own rows, whose labels and right-hand texts say the rest: the appearance picker)
 void
-Lobby_DrawFrontend(int32 screen)
+Lobby_DrawFrontend(int32 screen, bool active)
 {
+	if (screen == MENUPAGE_MMO_SKINS)
+		Skins_PickerDraw(active);
 }
 
 // ---------------------------------------------------------------- the pages' texts
@@ -1222,6 +1186,7 @@ Lobby_Text(const char *key)
 		{ "ORT_RTY", "Retry", "Réessayer" },
 		{ "ORT_PLY", "Play", "Jouer" },
 		{ "ORT_APP", "Appearance", "Apparence" },
+		{ "ORT_APT", "Appearance", "Apparence" },
 		{ "ORT_DEL", "Delete", "Supprimer" },
 		{ "ORT_NAM", "Pseudo", "Pseudo" },
 		{ "ORT_CRE", "Create", "Créer" },
@@ -1275,6 +1240,7 @@ PageName(int32 screen)
 	case MENUPAGE_MMO_CHARACTER: return "character";
 	case MENUPAGE_MMO_NEW: return "new";
 	case MENUPAGE_MMO_DELETE: return "delete";
+	case MENUPAGE_MMO_SKINS: return "skins";
 	case MENUPAGE_START_MENU: return "start";
 	}
 	return "other";
@@ -1314,9 +1280,10 @@ Lobby_Debug(void)
 	            "\"skin\":\"%s\",\"newName\":\"%s\",\"newSkin\":\"%s\",\"editing\":%s,\"creating\":%s,\"deleting\":%s,\"joining\":%s,"
 	            "\"message\":\"%s\"}",
 	            PageName(page), statusNames[ListStatus()], json, rows, m.m_nCurrOption, c ? c->name : "",
-	            lobby.skinChoice >= 0 ? skins[lobby.skinChoice].model : "", name, skins[lobby.newSkin].model,
+	            lobby.skinChoice, name, lobby.newSkin[0] ? lobby.newSkin : "player",
 	            lobby.editing ? "true" : "false", lobby.creating ? "true" : "false", lobby.deleting ? "true" : "false",
 	            lobby.joining ? "true" : "false", messageNames[lobby.message]);
+	Skins_Debug();
 }
 
 // (the word after a command, and the rest after it)
@@ -1336,7 +1303,9 @@ Arg(const char *cmd, char *word, int32 size)
 }
 
 // "lobby": the lobby's state printed. "mpmenu": the multiplayer page opened from the main menu. "mpcreate <name>
-// [skin]", "mpplay <name>", "mpskin <name> <skin>", "mpdelete <name>": the pages' own requests, by name.
+// [skin]", "mpplay <name>", "mpskin <name> <skin>", "mpdelete <name>": the pages' own requests, by name. The pages
+// driven as a player does: "mpopen <name>" (a character's page), "mpnew" (the new character page), "mpname <pseudo>"
+// (typed there), "mpskins" (the appearance picker from either page; its own commands: mmo_skins.cpp).
 bool
 Lobby_TestCommand(const char *cmd)
 {
@@ -1365,11 +1334,57 @@ Lobby_TestCommand(const char *cmd)
 	if (strcmp(word, "mpcreate") == 0) {
 		rest = Arg(rest, name, sizeof(name));
 		Arg(rest, skin, sizeof(skin));
-		const int32 i = skin[0] ? SkinIndex(skin) : 0;
-		if (i < 0 || !LobbyCreate(name, skins[i].model))
-			debug("mpcreate: refused (%s)\n", i < 0 ? "unknown skin" : messageNames[lobby.message]);
+		const char *model = skin[0] ? Lobby_SkinModel(skin) : "player";
+		if (model == nil || !LobbyCreate(name, model))
+			debug("mpcreate: refused (%s)\n", model == nil ? "unknown skin" : messageNames[lobby.message]);
 		return true;
 	}
+	if (strcmp(word, "mpskins") == 0) {
+		// (the appearance picker, as the Appearance row opens it, from the character page or the new character page)
+		const LobbyCharacter *c = FindCharacter(lobby.selectedId);
+		if (!m.m_bMenuActive || (m.m_nCurrScreen != MENUPAGE_MMO_CHARACTER && m.m_nCurrScreen != MENUPAGE_MMO_NEW))
+			debug("mpskins: only from the character or new character page\n");
+		else if (m.m_nCurrScreen == MENUPAGE_MMO_NEW) {
+			StopEditing(true);
+			OpenPicker(MENUPAGE_MMO_NEW, lobby.newSkin[0] ? lobby.newSkin : "player");
+		} else
+			OpenPicker(MENUPAGE_MMO_CHARACTER, lobby.skinChoice[0] ? lobby.skinChoice : c ? c->skin : nil);
+		return true;
+	}
+	if (strcmp(word, "mpnew") == 0) {
+		// (the new character page, from the characters' list)
+		if (m.m_bMenuActive && m.m_nCurrScreen == MENUPAGE_MMO_CHARACTERS && LinkStatus() == ST_LIST)
+			lobby.pendingScreen = MENUPAGE_MMO_NEW;
+		else
+			debug("mpnew: only from the characters' list\n");
+		return true;
+	}
+	if (strcmp(word, "mpname") == 0) {
+		// (the new character's pseudo, as typed)
+		if (m.m_nCurrScreen != MENUPAGE_MMO_NEW)
+			debug("mpname: only on the new character page\n");
+		else {
+			StopEditing(true);
+			snprintf(lobby.newName, sizeof(lobby.newName), "%s", rest);
+		}
+		return true;
+	}
+	if (strcmp(word, "mpopen") == 0) {
+		// (a character's page, as its row opens it)
+		Arg(rest, name, sizeof(name));
+		const LobbyCharacter *c = FindCharacterNamed(name);
+		if (c == nil || !m.m_bMenuActive || !OurPage(m.m_nCurrScreen))
+			debug("mpopen: no character '%s' here\n", name);
+		else {
+			lobby.selectedId = c->id;
+			SetSkin(lobby.skinChoice, c->skin);
+			SetMessage(M_NONE, -1);
+			lobby.pendingScreen = MENUPAGE_MMO_CHARACTER;
+		}
+		return true;
+	}
+	if (Skins_TestCommand(word, rest))
+		return true;
 	if (strcmp(word, "mpplay") == 0 || strcmp(word, "mpskin") == 0 || strcmp(word, "mpdelete") == 0) {
 		rest = Arg(rest, name, sizeof(name));
 		Arg(rest, skin, sizeof(skin));
@@ -1380,14 +1395,15 @@ Lobby_TestCommand(const char *cmd)
 		}
 		lobby.selectedId = c->id;
 		if (strcmp(word, "mpplay") == 0) {
-			lobby.skinChoice = SkinIndex(c->skin);
+			SetSkin(lobby.skinChoice, c->skin);
 			LobbyPlay(c->id);
 		} else if (strcmp(word, "mpskin") == 0) {
-			lobby.skinChoice = SkinIndex(skin);
-			if (lobby.skinChoice < 0)
+			if (Lobby_SkinModel(skin) == nil)
 				debug("mpskin: unknown skin '%s'\n", skin);
-			else
+			else {
+				SetSkin(lobby.skinChoice, skin);
 				ApplySkinChoice();
+			}
 		} else
 			LobbyDelete(c->id);
 		return true;

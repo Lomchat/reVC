@@ -2478,6 +2478,9 @@ CMenuManager::DrawBackground(bool transitionCall)
 					break;
 				default:
 					DrawStandardMenus(false);
+#ifdef ORTHROS_EXTRAS
+					OrthrosMmo::DrawFrontend(m_nCurrScreen, false); // (the shared world's pages: what they draw beyond their rows)
+#endif
 					break;
 			}
 			m_nCurrScreen = actualScreen;
@@ -2497,6 +2500,9 @@ CMenuManager::DrawBackground(bool transitionCall)
 			break;
 		default:
 			DrawStandardMenus(true);
+#ifdef ORTHROS_EXTRAS
+			OrthrosMmo::DrawFrontend(m_nCurrScreen, true); // (the shared world's pages: what they draw beyond their rows)
+#endif
 			break;
 	}
 

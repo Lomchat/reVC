@@ -21,6 +21,7 @@ WEAK void PreWorld(void) {}
 WEAK void PostWorld(void) {}
 WEAK void EndProcess(void) {}
 WEAK void FrontendFrame(void) {}
+WEAK void DrawFrontend(int32, bool) {}
 WEAK void Render2d(void) {}
 WEAK void RenderOverlay(void) {}
 WEAK bool KeyDown(int32) { return false; }
@@ -156,10 +157,25 @@ WEAK bool Lobby_KeyDown(int32) { return false; }
 WEAK void Lobby_TextInput(const char *) {}
 WEAK wchar *Lobby_Text(const char *) { return nil; }
 WEAK void Lobby_ScreenChanged(int32) {}
-WEAK void Lobby_DrawFrontend(int32) {}
+WEAK void Lobby_DrawFrontend(int32, bool) {}
 WEAK bool Lobby_TestCommand(const char *) { return false; }
 WEAK void Lobby_Debug(void) {}
+WEAK void Lobby_SkinPicked(const char *) {}
+
 WEAK const char *Lobby_SkinModel(const char *) { return nil; }
+WEAK bool Lobby_SkinFemale(const char *) { return false; }
+WEAK int32 Skins_Index(const char *) { return -1; }
+WEAK int32 Skins_Count(void) { return 0; }
+WEAK const char *Skins_Model(int32) { return "player"; }
+WEAK wchar *Skins_Label(const char *, wchar *out, int32 size) { if (size > 0) out[0] = 0; return out; }
+WEAK void Skins_PickerOpen(const char *) {}
+WEAK void Skins_PickerClose(void) {}
+WEAK bool Skins_PickerOpenNow(void) { return false; }
+WEAK void Skins_PickerFrame(void) {}
+WEAK bool Skins_PickerKey(int32) { return false; }
+WEAK void Skins_PickerDraw(bool) {}
+WEAK bool Skins_TestCommand(const char *, const char *) { return false; }
+WEAK void Skins_Debug(void) {}
 
 WEAK void Players_OnState(int32, In &) {}
 WEAK void Players_Joined(int32) {}
