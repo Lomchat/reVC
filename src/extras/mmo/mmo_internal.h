@@ -260,6 +260,9 @@ bool Combat_TestCommand(const char *cmd);
 void Combat_Debug(void);
 void Combat_PlayerDied(void);
 void Combat_PlayerRespawned(void);
+// A puppet vehicle wrecked as its owner's is (the entities module, when a state says wrecked and the copy is not yet):
+// explode = BlowUpCar's own blast and effects (its occupants left to their owners), else only the wreck's look.
+void Combat_WreckPuppet(CVehicle *veh, bool explode);
 // world (mmo_world.cpp)
 void World_Changed(void);                   // WORLD received (or WELCOME's)
 void World_OnWorldEvent(int32 from, int32 id, int32 arg);

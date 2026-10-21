@@ -362,7 +362,9 @@ SaveNow(bool afterDeath)
 		return;
 	SavedState s;
 	uint8 data[128];
-	CurrentState(&s, afterDeath);
+	// (dying already - its last seconds before PED_DEAD -: saved as the respawn will make it, never alive at 1 health,
+	// which the game kills again at once)
+	CurrentState(&s, afterDeath || ped->DyingOrDead() || ped->m_fHealth <= 1.0f);
 	const int32 n = WriteState(s, data, sizeof(data));
 	if (n == 0)
 		return;

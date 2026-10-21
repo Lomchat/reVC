@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "SpecialFX.h"
 #include "RenderBuffer.h"
@@ -444,6 +445,9 @@ void CBulletTraces::AddTrace(CVector* start, CVector* end, int32 weaponType, cla
 	float speed;
 	int16 camMode;
 	
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::BulletTrace(*start, *end, weaponType, shooter); // (a shared world: a local shot seen by the others)
+#endif
 	if (shooter == (CEntity*)FindPlayerPed() || (FindPlayerVehicle() != nil && FindPlayerVehicle() == (CVehicle*)shooter)) {
 		camMode = TheCamera.Cams[TheCamera.ActiveCam].Mode;
 		if (camMode == CCam::MODE_M16_1STPERSON

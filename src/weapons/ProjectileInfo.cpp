@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Camera.h"
 #include "General.h"
@@ -209,6 +210,9 @@ CProjectileInfo::AddProjectile(CEntity *entity, eWeaponType weapon, CVector pos,
 	if (entity && entity->IsPed() && !ped->m_pCollidingEntity) {
 		ped->m_pCollidingEntity = ms_apProjectile[i];
 	}
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::ProjectileAdded(i); // (a shared world: a local projectile seen by the others)
+#endif
 	return true;
 }
 
@@ -216,6 +220,9 @@ void
 CProjectileInfo::RemoveProjectile(CProjectileInfo *info, CProjectile *projectile)
 {
 	// TODO(Miami): New parameter: 1
+#ifdef ORTHROS_EXTRAS
+	if (!OrthrosMmo::ProjectileSilent(info - gaProjectileInfo)) // (a remote projectile's blast is its owner's)
+#endif
 	switch (info->m_eWeaponType) {
 		case WEAPONTYPE_GRENADE:
 			CExplosion::AddExplosion(nil, info->m_pSource, EXPLOSION_GRENADE, projectile->GetPosition(), 0);

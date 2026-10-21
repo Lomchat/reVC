@@ -1129,9 +1129,17 @@ CVehicle::FindTyreNearestPoint(float x, float y)
 void
 CVehicle::InflictDamage(CEntity *damagedBy, eWeaponType weaponType, float damage, CVector pos)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::VehicleDamage(this, damagedBy, weaponType, damage, pos)) // (a shared world's puppet: to its owner)
+		return;
+#endif
 	if (!bCanBeDamaged)
 		return;
+#ifdef ORTHROS_EXTRAS
+	if(GetStatus() == STATUS_PLAYER && !OrthrosMmo::IsActive() && CStats::GetPercentageProgress() >= 100.0f) // (no 100 % reward in a shared world)
+#else
 	if(GetStatus() == STATUS_PLAYER && CStats::GetPercentageProgress() >= 100.0f)
+#endif
 		damage *= 0.5f;
 	if (GetStatus() != STATUS_PLAYER && bOnlyDamagedByPlayer && (damagedBy != FindPlayerPed() && damagedBy != FindPlayerVehicle()))
 		return;
@@ -2328,7 +2336,11 @@ void
 CVehicle::KillPedsInVehicle(void)
 {
 	int i;
+#ifdef ORTHROS_EXTRAS
+	if(pDriver && !OrthrosMmo::BlockPuppetDeath(pDriver)){ // (a shared world's puppet dies when its owner says so)
+#else
 	if(pDriver){
+#endif
 		CDarkel::RegisterKillByPlayer(pDriver, WEAPONTYPE_EXPLOSION);
 		if(pDriver->GetPedState() == PED_DRIVING){
 			pDriver->SetDead();
@@ -2338,7 +2350,11 @@ CVehicle::KillPedsInVehicle(void)
 			pDriver->SetDie();
 	}
 	for(i = 0; i < m_nNumMaxPassengers; i++){
+#ifdef ORTHROS_EXTRAS
+		if(pPassengers[i] && !OrthrosMmo::BlockPuppetDeath(pPassengers[i])){
+#else
 		if(pPassengers[i]){
+#endif
 			CDarkel::RegisterKillByPlayer(pPassengers[i], WEAPONTYPE_EXPLOSION);
 			if(pPassengers[i]->GetPedState() == PED_DRIVING){
 				pPassengers[i]->SetDead();

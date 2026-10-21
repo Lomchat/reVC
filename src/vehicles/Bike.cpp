@@ -2104,7 +2104,11 @@ CBike::VehicleDamage(void)
 	if(!bCanBeDamaged)
 		return;
 
+#ifdef ORTHROS_EXTRAS
+	if(GetStatus() == STATUS_PLAYER && !OrthrosMmo::IsActive() && CStats::GetPercentageProgress() >= 100.0f) // (no 100 % reward in a shared world)
+#else
 	if(GetStatus() == STATUS_PLAYER && CStats::GetPercentageProgress() >= 100.0f)
+#endif
 		impulse *= 0.5f;
 
 	if(bIsStanding && impulse > 20.0f)
@@ -2379,6 +2383,10 @@ CBike::RemoveRefsToVehicle(CEntity *ent)
 void
 CBike::BlowUpCar(CEntity *culprit)
 {
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::BlockBlowUp(this)) // (a shared world's puppet blows up when its owner's does)
+		return;
+#endif
 	if(!bCanBeDamaged)
 		return;
 
@@ -2439,6 +2447,10 @@ float fBikeBurstFallSpeedPlayer = 0.55f;
 void
 CBike::BurstTyre(uint8 wheel, bool applyForces)
 {
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::TyreBurst(this, wheel)) // (a shared world's puppet: to its owner)
+		return;
+#endif
 	if(bTyresDontBurst)
 		return;
 
@@ -2582,6 +2594,10 @@ CBike::KnockOffRider(eWeaponType weapon, uint8 direction, CPed *ped, bool bGetBa
 	AnimationId anim = ANIM_STD_KO_FRONT;
 	if(ped == nil)
 		return;
+#ifdef ORTHROS_EXTRAS
+	if(OrthrosMmo::KnockOff(this, ped, weapon, direction)) // (a shared world's puppet rider: to its owner)
+		return;
+#endif
 
 	if(!ped->IsPlayer()){
 		if(bGetBackOn){

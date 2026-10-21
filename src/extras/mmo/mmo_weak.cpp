@@ -58,6 +58,7 @@ WEAK void ExplosionAdded(CEntity *, CEntity *, int32, const CVector &, uint32) {
 WEAK bool SkipAreaDamage(CEntity *) { return false; }
 WEAK void PickupCreated(int32) {}
 WEAK void PickupCollected(int32) {}
+WEAK bool KnockOff(CVehicle *, CPed *, int32, uint8) { return false; }
 // world
 WEAK bool ClockUpdate(void) { return false; }
 WEAK bool WeatherUpdate(void) { return false; }
@@ -197,6 +198,7 @@ WEAK bool Combat_TestCommand(const char *) { return false; }
 WEAK void Combat_Debug(void) {}
 WEAK void Combat_PlayerDied(void) {}
 WEAK void Combat_PlayerRespawned(void) {}
+WEAK void Combat_WreckPuppet(CVehicle *, bool) {}
 
 WEAK void World_Changed(void) {}
 WEAK void World_OnWorldEvent(int32, int32, int32) {}

@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "Vector.h"
 #include "PlayerPed.h"
@@ -57,6 +58,9 @@ CFire::ProcessFire(void)
 	if (m_pEntity) {
 		m_vecPos = m_pEntity->GetPosition();
 
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::SkipAreaDamage(m_pEntity)) {} else // (a shared world's puppet: flames only, its owner burns it)
+#endif
 		if (((CPed *)m_pEntity)->IsPed()) {
 			if (ped->m_pFire != this) {
 				Extinguish();

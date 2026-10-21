@@ -1856,6 +1856,10 @@ CWorld::SetCarsOnFire(float x, float y, float z, float radius, CEntity *reason)
 	int poolSize = CPools::GetVehiclePool()->GetSize();
 	for(int poolIndex = poolSize - 1; poolIndex >= 0; poolIndex--) {
 		CVehicle *veh = CPools::GetVehiclePool()->GetSlot(poolIndex);
+#ifdef ORTHROS_EXTRAS
+		if(OrthrosMmo::SkipAreaDamage(veh)) // (a shared world's puppet burns at its owner's)
+			continue;
+#endif
 		if(veh && veh->GetStatus() != STATUS_WRECKED && !veh->m_pCarFire && !veh->bFireProof) {
 			if(Abs(veh->GetPosition().z - z) < 5.0f && Abs(veh->GetPosition().x - x) < radius &&
 			   Abs(veh->GetPosition().y - y) < radius)
@@ -1870,6 +1874,10 @@ CWorld::SetPedsChoking(float x, float y, float z, float radius, CEntity* reason)
 	int32 poolSize = CPools::GetPedPool()->GetSize();
 	for (int32 i = poolSize - 1; i >= 0; i--) {
 		CPed* pPed = CPools::GetPedPool()->GetSlot(i);
+#ifdef ORTHROS_EXTRAS
+		if (OrthrosMmo::SkipAreaDamage(pPed)) // (a shared world's puppet chokes at its owner's)
+			continue;
+#endif
 		// suspicious copypaste
 		if (pPed && pPed->m_nPedState != PED_DEAD && !pPed->bInVehicle && !pPed->m_pFire && !pPed->bFireProof && pPed->CharCreatedBy != MISSION_CHAR) {
 			if (Abs(pPed->GetPosition().z - z) < 5.0f && Abs(pPed->GetPosition().x - x) < radius &&
@@ -1892,6 +1900,10 @@ CWorld::SetPedsOnFire(float x, float y, float z, float radius, CEntity *reason)
 	int32 poolSize = CPools::GetPedPool()->GetSize();
 	for(int32 i = poolSize - 1; i >= 0; i--) {
 		CPed *pPed = CPools::GetPedPool()->GetSlot(i);
+#ifdef ORTHROS_EXTRAS
+		if(OrthrosMmo::SkipAreaDamage(pPed)) // (a shared world's puppet burns at its owner's)
+			continue;
+#endif
 		if(pPed && pPed->m_nPedState != PED_DEAD && !pPed->bInVehicle && !pPed->m_pFire && !pPed->bFireProof) {
 			if(Abs(pPed->GetPosition().z - z) < 5.0f && Abs(pPed->GetPosition().x - x) < radius &&
 			   Abs(pPed->GetPosition().y - y) < radius)
@@ -2137,6 +2149,10 @@ CWorld::TriggerExplosionSectorList(CPtrList &list, const CVector &position, floa
 {
 	for(CPtrNode *pNode = list.first; pNode; pNode = pNode->next) {
 		CPhysical *pEntity = (CPhysical *)pNode->item;
+#ifdef ORTHROS_EXTRAS
+		if(OrthrosMmo::SkipAreaDamage(pEntity)) // (a shared world's puppet: its owner applies the blast to it)
+			continue;
+#endif
 		CVector vecDistance = pEntity->GetPosition() - position;
 		float fMagnitude = vecDistance.Magnitude();
 		if(fRadius > fMagnitude) {

@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "ShotInfo.h"
 #include "Entity.h"
@@ -53,6 +54,9 @@ bool
 CShotInfo::AddShot(CEntity *sourceEntity, eWeaponType weapon, CVector startPos, CVector endPos)
 {
 	CWeaponInfo *weaponInfo = CWeaponInfo::GetWeaponInfo(weapon);
+#ifdef ORTHROS_EXTRAS
+	OrthrosMmo::FlameShot(sourceEntity, startPos, endPos); // (a shared world: a local flame seen by the others)
+#endif
 
 	int slot;
 	for (slot = 0; slot < ARRAY_SIZE(gaShotInfo) && gaShotInfo[slot].m_inUse; slot++);
@@ -131,7 +135,11 @@ CShotInfo::Update()
 
 			for (int i = 0; i < ped->m_numNearPeds; ++i) {
 				CPed *nearPed = ped->m_nearPeds[i];
+#ifdef ORTHROS_EXTRAS
+				if (nearPed->IsPointerValid() && !OrthrosMmo::SkipAreaDamage(nearPed)) { // (a shared world's puppet burns at its owner's)
+#else
 				if (nearPed->IsPointerValid()) {
+#endif
 					if (nearPed->IsPedInControl() && (nearPed->GetPosition() - shot.m_startPos).MagnitudeSqr() < radius && !nearPed->bFireProof) {
 
 						if (!nearPed->IsPlayer()) {

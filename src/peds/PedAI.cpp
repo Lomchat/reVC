@@ -1,4 +1,5 @@
 #include "common.h"
+#include "mmo.h"
 
 #include "main.h"
 #include "Particle.h"
@@ -2225,6 +2226,10 @@ CPed::ReactToPointGun(CEntity *entWithGun)
 void
 CPed::ReactToAttack(CEntity *attacker)
 {
+#ifdef ORTHROS_EXTRAS
+	if (OrthrosMmo::IsPuppet(this)) // (a shared world's puppet: its owner's ped reacts)
+		return;
+#endif
 	if (IsPlayer() && attacker->IsPed()) {
 		InformMyGangOfAttack(attacker);
 		SetLookFlag(attacker, true);

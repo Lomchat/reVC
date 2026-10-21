@@ -110,6 +110,8 @@ namespace OrthrosMmo
 	// Pickups: a dynamic one created (CPickups::GenerateNewOne result), one collected by the local player.
 	void PickupCreated(int32 handle);
 	void PickupCollected(int32 slot);
+	// CBike::KnockOffRider on entry: true = handled (a puppet rider knocked off by us: told to its owner).
+	bool KnockOff(CVehicle *bike, CPed *rider, int32 weapon, uint8 direction);
 
 	// ---------------------------------------------------------------- world (mmo_world.cpp)
 	// CClock::Update on entry: true = the shared clock set it.
