@@ -451,7 +451,7 @@ Social_LeaveInterior(void)
 	CRubbish::SetVisibility(true);
 	CGame::currArea = AREA_MAIN_MAP;
 	CStreaming::RemoveBuildingsNotInArea(AREA_MAIN_MAP);
-	if (CTheScripts::MainScriptSize == 204596)
+	if (CTheScripts::MainScriptSize == MAIN_SCRIPT_SIZE)
 		for (int32 i = 0; i < (int32)ARRAY_SIZE(insideFlags); i++)
 			*(int32 *)&CTheScripts::ScriptSpace[insideFlags[i] * 4] = 0;
 }

@@ -40,6 +40,9 @@ enum { WV_FORCED_WEATHER = 1, WV_CHEATS = 2, WV_COUNT = 16 };
 enum { RECORD_GARAGE = 0x0100 };
 // world events (C_WORLD_EVENT / S_WORLD_EVENT)
 enum { WE_BIGBANG = 1 };
+// main.scm (the PC script whose main part is 204,596 bytes, the free mode's start's): its variables' numbers are used
+// only when CTheScripts::MainScriptSize is this
+static const uint32 MAIN_SCRIPT_SIZE = 204596;
 // player network ids
 static inline uint32 PlayerNetId(int slot) { return 0xFFF00000u | (uint32)slot; }
 static inline bool IsPlayerNetId(uint32 id) { return (id & 0xFFF00000u) == 0xFFF00000u; }
