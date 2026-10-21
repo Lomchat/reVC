@@ -1715,7 +1715,7 @@ void CStream::Update()
 
 		// Relying a lot on left buffer states in here
 
-#ifdef ORTHROS_EXTRAS
+#ifdef __EMSCRIPTEN__
 		// (one thread, the browser's OpenAL: a source's processed count moves only in the page's audio timer, between
 		// frames, never during this one - the two channels updated a moment apart by that timer, the loop below waited
 		// here for ever, the page frozen. Read once; the buffers both channels are done with are taken, the others next
